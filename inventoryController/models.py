@@ -1,3 +1,4 @@
+from pyexpat import model
 from django.db import models
 
 CONDITION_CHOISES = [
@@ -108,14 +109,18 @@ class AuctionItem(models.Model):
     msrp = models.IntegerField()
     shelfLocation = models.CharField(max_length=6)
     sku = models.IntegerField()
+    startBid = models.FloatField()
+    reserve = models.FloatField()
 
-    def __init__(self, lot, lead, description, msrp, shelfLocation, sku) -> None:
+    def __init__(self, lot, lead, description, msrp, shelfLocation, sku, startBid, reserve) -> None:
         self.lot = lot
         self.lead = lead
         self.description = description
         self.msrp = msrp
         self.shelfLocation = shelfLocation
         self.sku = sku
+        self.startBid = startBid
+        self.reserve = reserve
     
     # return inventory sku
     def __str__(self) -> str:

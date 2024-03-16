@@ -42,8 +42,7 @@ from inventoryController.unpack_filter import unpackInstockFilter
 import pymongo
 import pandas as pd
 from bs4 import BeautifulSoup
-from io import TextIOWrapper
-
+import random
 
 # append this in front of description for item msrp lte 80$
 desc_under_80 = 'READ NEW TERMS OF USE BEFORE YOU BID!'
@@ -734,7 +733,6 @@ def getAuctionCsv(request: HttpRequest):
     # make inventory csv rows
     itemsArrData = []
     imageArrData = []
-    imageUrlArr = []
     itemsArr = record['itemsArr']
     for item in itemsArr:
         # get float msrp
@@ -795,7 +793,7 @@ def getAuctionCsv(request: HttpRequest):
         'Price',       # original scraped msrp  
         'Location',    # original shelfLocation
         'item',
-        'vendor',     
+        'vendor',
         'start bid',
         'reserve',
         'Est',
@@ -855,10 +853,11 @@ def addTopRowItem(request: HttpRequest):
             description=sanitizeString(item['description']),
             msrp=sanitizeNumber(item['msrp']),
             shelfLocation=sanitizeString(item['shelfLocation']),
+            startBid=sanitizeNumber(item['startBid']),
+            reserve=sanitizeNumber(item['reserve']),
         )
     except Exception as e:
         return Response(e, status.HTTP_400_BAD_REQUEST)
-
 
     res = auction_collection.update_one(
         { 'lot': auctionLot },
@@ -869,8 +868,8 @@ def addTopRowItem(request: HttpRequest):
         }
     )
     if not res:
-        return Response('Cannot Insert')
-    return Response('', status.HTTP_200_OK)
+        return Response('Cannot Insert Top Row Item', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return Response('Item Inserted', status.HTTP_200_OK)
 
 @api_view(['DELETE'])
 @authentication_classes([JWTAuthentication])
@@ -1142,10 +1141,60 @@ def deleteRemainingRecord(request: HttpRequest):
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
-    res = remaining_collection.delete_one({'lot': remainingLotNumber})
+    res = remaining_collection.delete_one({ 'lot': remainingLotNumber })
     if not res:
         return Response('Cannot Delete From Database', status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response(f'Delete Remaining Record {remainingLotNumber}', status.HTTP_200_OK)
+
+@api_view(['GET'])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAdminPermission])
+def getRemainingLotNumbers(request: HttpRequest):
+    # grab remaining record if unsold items exist
+    res = remaining_collection.find({}, { '_id': 0, 'lot': 1, 'unsoldCount': { '$gt': 0 }}).distinct('lot')
+    arr= []
+    for item in res:
+        arr.append(item)
+    return Response(arr, status.HTTP_200_OK)
+
+@api_view(['POST'])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAdminPermission])
+def importUnsoldItems(request: HttpRequest):
+    try:
+        body = decodeJSON(request.body)
+        auctionLotNumber = sanitizeNumber(int(body['auctionLotNumber']))
+        remainingLotNumber = sanitizeNumber(int(body['remainingLotNumber']))
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    
+    # look for remaining record
+    remainingItems = remaining_collection.find({ 'lot': remainingLotNumber }, {'_id': 0, 'unsoldItems': 1})
+    if not remainingItems:
+        return Response('Remaining Record Not Found', status.HTTP_404_NOT_FOUND)
+    remainingItemsArr = []
+    for item in remainingItems:
+        for i in item['unsoldItems']:
+            remainingItemsArr.append(i)
+    if len(remainingItemsArr) < 1:
+        return Response('No Unsold Items Found', status.HTTP_404_NOT_FOUND)
+    
+    # random sort unsold
+    random.shuffle(remainingItemsArr)
+    
+    # look for auction record
+    # and insert previous remaining record into the 
+    auction = auction_collection.find_one_and_update(
+        { 'lot': auctionLotNumber },
+        {
+            '$set': {
+                f'previousUnsoldArr.{remainingLotNumber}': remainingItemsArr
+            }
+        }
+    )
+    if not auction:
+        return Response('Auction Not Found, Failed to Update', status.HTTP_404_NOT_FOUND)
+    return Response(f'Unsold Items Imported to Auction {auctionLotNumber}', status.HTTP_200_OK)
 
 
 '''
