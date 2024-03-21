@@ -219,6 +219,12 @@ def sanitizeNumber(num):
         raise TypeError('Invalid Number')
     return num
 
+# make sure bool is actually bool
+def sanitizeBoolean(bool_input):
+    if not isinstance(bool_input, bool):
+        raise TypeError('Invalid Boolean')
+    return bool_input
+
 # sanitize all field in user info body
 # make sure user is active and remove $
 def sanitizeUserInfoBody(body):

@@ -1,4 +1,5 @@
 from pyexpat import model
+from turtle import mode
 from django.db import models
 
 CONDITION_CHOISES = [
@@ -139,12 +140,13 @@ class AuctionRecord(models.Model):
     remainingResolved: str = models.BooleanField()
     minSku: int = models.IntegerField()
     maxSku: int = models.IntegerField()
+    itemLotStart = models.IntegerField()
 
     # excluded:
     # itemsArr: InstockItem[],
     # topRow: InstockItem[],
 
-    def __init__(self, lot, totalItems, openTime, closeTime, closed, title, description, minMSRP, maxMSRP, remainingResolved, minSku, maxSku) -> None:
+    def __init__(self, lot, totalItems, openTime, closeTime, closed, title, description, minMSRP, maxMSRP, remainingResolved, minSku, maxSku, itemLotStart) -> None:
         self.lot = lot
         self.totalItems = totalItems
         self.openTime = openTime
@@ -157,7 +159,8 @@ class AuctionRecord(models.Model):
         self.remainingResolved = remainingResolved
         self.minSku = minSku
         self.maxSku = maxSku
-
+        self.itemLotStart = itemLotStart
+        
     # return inventory sku
     def __str__(self) -> str:
         return str(self.lot)

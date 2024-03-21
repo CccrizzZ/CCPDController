@@ -28,7 +28,7 @@ urlpatterns = [
     # auction function
     path("getAuctionRemainingRecord", views.getAuctionRemainingRecord, name="getAuctionRemainingRecord"),
     path("createAuctionRecord", views.createAuctionRecord, name="createAuctionRecord"),
-    path("processRemaining", views.processRemaining, name="processRemaining"),
+    path("createRemainingRecord", views.createRemainingRecord, name="createRemainingRecord"),
     path("updateRemainingToDB", views.updateRemainingToDB, name="updateRemainingToDB"),
     path("addTopRowItem", views.addTopRowItem, name="addTopRowItem"),
     path("deleteTopRowItem", views.deleteTopRowItem, name="deleteTopRowItem"),
@@ -36,6 +36,8 @@ urlpatterns = [
     path("deleteRemainingRecord", views.deleteRemainingRecord, name="deleteRemainingRecord"),
     path("getRemainingLotNumbers", views.getRemainingLotNumbers, name="getRemainingLotNumbers"),
     path("importUnsoldItems", views.importUnsoldItems, name="importUnsoldItems"),
+    path("deleteUnsoldItems", views.deleteUnsoldItems, name="deleteUnsoldItems"),
+    path("auditRemainingRecord", views.auditRemainingRecord, name="auditRemainingRecord"),
     # scraping function
     path("generateDescriptionBySku", views.generateDescriptionBySku, name="generateDescriptionBySku"),
     path("scrapeInfoBySkuAmazon", views.scrapeInfoBySkuAmazon, name="scrapeInfoBySkuAmazon"),

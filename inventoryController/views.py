@@ -15,7 +15,7 @@ from CCPDController.utils import (
     get_db_client, 
     getIsoFormatInv, 
     getNDayBeforeToday, getTodayTimeRangeFil, 
-    populateSetData, 
+    populateSetData, sanitizeBoolean, 
     sanitizeNumber, 
     sanitizeSku, 
     convertToTime, 
@@ -762,7 +762,7 @@ def getAuctionCsv(request: HttpRequest):
         row = {
             'Lot': itemLot, 
             'Lead': lead,
-            'Description': desc,
+            'Description': desc.strip(),
             'MSRP:$': 'MSRP:$',
             'Price': msrp,
             'Location': sanitizeString(item['shelfLocation']),
@@ -862,9 +862,8 @@ def addTopRowItem(request: HttpRequest):
     res = auction_collection.update_one(
         { 'lot': auctionLot },
         {
-            '$push': {
-                'topRow': newTopRowItem.__dict__
-            }
+            '$push': { 'topRow': newTopRowItem.__dict__ },
+            '$inc': { 'totalItems': 1 }
         }
     )
     if not res:
@@ -889,7 +888,8 @@ def deleteTopRowItem(request: HttpRequest):
             'topRow': { '$elemMatch': { 'sku': sku, 'lot': itemLotNum }}
         },
         {
-            '$pull': { 'topRow': { 'sku': sku, 'lot': itemLotNum }}
+            '$pull': { 'topRow': { 'sku': sku, 'lot': itemLotNum }},
+            '$inc': { 'totalItems': -1 }
         }
     )
 
@@ -901,16 +901,20 @@ def deleteTopRowItem(request: HttpRequest):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def createAuctionRecord(request: HttpRequest):
-    # try:
-    body = decodeJSON(request.body)
-    lot = sanitizeNumber(body['lot'])
-    exist = auction_collection.find_one({'lot': lot})
-    if exist:
-        return Response('Lot Exist', status.HTTP_409_CONFLICT)
-    itemLotStart = sanitizeNumber(body['itemLotStart'])
-    
+    try:
+        body = decodeJSON(request.body)
+        lot = sanitizeNumber(body['lot'])
+        duplicate = sanitizeBoolean(body['duplicate'])
+        print(duplicate)
+        exist = auction_collection.find_one({'lot': lot})
+        if exist:
+            return Response('Lot Exist', status.HTTP_409_CONFLICT)
+        itemLotStart = sanitizeNumber(body['itemLotStart'])
+        endDate = sanitizeString(body['endDate'])
+    except:
+        return Response('InvalidBody', status.HTTP_400_BAD_REQUEST)
+        
     # construct auction record fields
-    endDate = sanitizeString(body['endDate'])
     title = ''
     description = ''
     minMSRP = 0
@@ -938,31 +942,51 @@ def createAuctionRecord(request: HttpRequest):
     
     # construct itemsArr inside auction record
     itemsArr = []
-    res = instock_collection.find(fil, { '_id': 0, 'sku': 1, 'lead': 1, 'msrp': 1, 'description': 1, 'shelfLocation': 1, 'condition': 1 }).sort({ 'msrp': -1 })
-    count = instock_collection.count_documents(fil)
-    for item in res:
+    instock = instock_collection.find(
+        fil, 
+        { '_id': 0, 'sku': 1, 'lead': 1, 'msrp': 1, 'description': 1, 'shelfLocation': 1, 'condition': 1, 'quantityInstock': 1 }
+    ).sort({ 'msrp': -1 })
+    
+    # loop all filtered instock items
+    for item in instock:
+        quantity = item['quantityInstock']
+        item.pop('quantityInstock')
+        
+        # get bid and reserve price
         priceObj = getBidReserve(
             item['description'] if 'description' in item else '', 
             item['msrp'] if 'msrp' in item else 0, 
             item['condition'] if 'condition' in item else 'New'
         )
+        
+        # if specified startbid and reserve, pull from item 
         if 'startBid' in item and 'reserve' in item:
             priceObj = {
                 'reserve': sanitizeNumber(item['reserve']),
                 'startBid': sanitizeNumber(item['startBid'])
             }
         
-        itemsArr.append({
+        # final object
+        auctionItem = {
             **item, 
             'startBid': priceObj['startBid'] if 'startBid' not in item else item['startBid'], 
             'reserve': priceObj['reserve'] if 'reserve' not in item else item['reserve'],
-        }) # start bid and reserve is calculated at getBidReserveEst
+        } # start bid and reserve is calculated at getBidReserveEst
+    
+
+        if duplicate and quantity > 1:
+            for x in range(quantity):
+                itemsArr.append(auctionItem)
+        else:
+            itemsArr.append(auctionItem)
+    # count = instock_collection.count_documents(fil)
+    count = len(itemsArr)
 
     # append item lot number inside
     itemLotNumbersArr = []
     for x in range(itemLotStart, itemLotStart + count + 1):
-        itemLotNumbersArr.append({'lot': x})
-    merged_list = [{**d1, **d2} for d1, d2 in zip(itemLotNumbersArr, itemsArr)]
+        itemLotNumbersArr.append({ 'lot': x })
+    merged_list = [{ **d1, **d2 } for d1, d2 in zip(itemLotNumbersArr, itemsArr)]
 
     # path through model
     auctionRecord = AuctionRecord(
@@ -978,11 +1002,12 @@ def createAuctionRecord(request: HttpRequest):
         remainingResolved=False,
         minSku=minSku,
         maxSku=maxSku,
+        itemLotStart=itemLotStart,
     )
     try: 
         # create auction record in mongo db
-        res = auction_collection.insert_one({**auctionRecord.__dict__, 'itemsArr': merged_list})
-        if not res:
+        auction = auction_collection.insert_one({**auctionRecord.__dict__, 'itemsArr': merged_list})
+        if not auction:
             return Response('Cannot Push To DB', status.HTTP_500_INTERNAL_SERVER_ERROR)
     except: 
         return Response('Cannot Push To DB', status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -1022,11 +1047,12 @@ def updateRemainingToDB(request: HttpRequest):
         'updatedCount': len(soldArr) - len(errArr)
     }, status.HTTP_200_OK)
 
+# takes XLS file from Hibid and creat remaining record in DB
 # default remaining sheet is XLS
 @api_view(['POST'])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
-def processRemaining(request: HttpRequest):
+def createRemainingRecord(request: HttpRequest):
     try:
         # destruct from formData
         lot_number = sanitizeNumber(int(request.data.get('lot')))
@@ -1052,6 +1078,7 @@ def processRemaining(request: HttpRequest):
     # grab all neccesary columns from remaining xls (df)
     soldItems = []
     unsoldItems = []
+    errorItems = []
     for index, row in df.iterrows():
         row = row.to_dict()
         try:
@@ -1073,7 +1100,14 @@ def processRemaining(request: HttpRequest):
         shelf = sanitizeString(item['shelfLocation'])
         
         # determin if it is sold or not
-        if sold == 'S' and bid > 0:
+        if sold == 'S' and bid > reserve:
+            # check instock database for out-of-stock items
+            # all out of stock item will goto errorItems array
+            instock = instock_collection.find_one(
+                { 'sku': sku, 'shelfLocation': shelf }, 
+                { '_id': 0, 'quantityInstock': 1 }
+            )
+            quantity = int(instock['quantityInstock'])
             soldItem = {
                 'soldStatus': sold,
                 'bidAmount': bid,
@@ -1081,11 +1115,13 @@ def processRemaining(request: HttpRequest):
                 'sku': sku,
                 'lead': lead,
                 'reserve': reserve,
-                'shelfLocation': shelf
+                'shelfLocation': shelf,
+                'quantityInstock': quantity  # maybe check instock in unsold as well
             }
-            soldItems.append(soldItem)
-            
-            # TODO: create retail record
+            if quantity > 0:
+                soldItems.append(soldItem)
+            else:
+                errorItems.append(soldItem)
         elif sold == 'NS':
             remainingItem = {
                 'lot': lot,
@@ -1108,12 +1144,10 @@ def processRemaining(request: HttpRequest):
         'soldItems': soldItems,
         'unsoldItems': unsoldItems,
         'timeClosed': getIsoFormatNow(),
+        'isProcessed': False,
+        'errorItems': errorItems
     }
     remaining_collection.insert_one(RemainingInfo)
-    # construct csv and send to front end
-    # csv = df.to_csv(index=False)
-    # response = Response(csv, status=status.HTTP_200_OK, content_type='text/csv')
-    # response['Content-Disposition'] = 'attachment; filename="shelfSheet.csv"'
     return Response('Remaining Record Created', status.HTTP_200_OK)
 
 @api_view(['DELETE'])
@@ -1157,6 +1191,7 @@ def getRemainingLotNumbers(request: HttpRequest):
         arr.append(item)
     return Response(arr, status.HTTP_200_OK)
 
+# add unsold items to auction record 
 @api_view(['POST'])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
@@ -1165,22 +1200,26 @@ def importUnsoldItems(request: HttpRequest):
         body = decodeJSON(request.body)
         auctionLotNumber = sanitizeNumber(int(body['auctionLotNumber']))
         remainingLotNumber = sanitizeNumber(int(body['remainingLotNumber']))
+        auction = auction_collection.find_one({ 'lot': auctionLotNumber }, { '_id': 0, 'totalItems': 1, 'itemLotStart': 1})
+        unsoldLotStart = auction['itemLotStart'] + auction['totalItems']
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     # look for remaining record
-    remainingItems = remaining_collection.find({ 'lot': remainingLotNumber }, {'_id': 0, 'unsoldItems': 1})
-    if not remainingItems:
+    remaining = remaining_collection.find_one({ 'lot': remainingLotNumber }, {'_id': 0, 'unsoldItems': 1})
+    if not remaining:
         return Response('Remaining Record Not Found', status.HTTP_404_NOT_FOUND)
+    
+    # loop unsold items
     remainingItemsArr = []
-    for item in remainingItems:
-        for i in item['unsoldItems']:
-            remainingItemsArr.append(i)
+    for unsold in remaining['unsoldItems']:
+        remainingItemsArr.append({**unsold, 'lot': unsoldLotStart})
+        unsoldLotStart += 1
     if len(remainingItemsArr) < 1:
         return Response('No Unsold Items Found', status.HTTP_404_NOT_FOUND)
     
     # random sort unsold
-    random.shuffle(remainingItemsArr)
+    # random.shuffle(remainingItemsArr)
     
     # look for auction record
     # and insert previous remaining record into the 
@@ -1188,13 +1227,94 @@ def importUnsoldItems(request: HttpRequest):
         { 'lot': auctionLotNumber },
         {
             '$set': {
-                f'previousUnsoldArr.{remainingLotNumber}': remainingItemsArr
+                'totalItems': auction['totalItems'] + len(remainingItemsArr),
+                f'previousUnsoldArr.{remainingLotNumber}': remainingItemsArr,
             }
         }
     )
     if not auction:
         return Response('Auction Not Found, Failed to Update', status.HTTP_404_NOT_FOUND)
     return Response(f'Unsold Items Imported to Auction {auctionLotNumber}', status.HTTP_200_OK)
+
+# delete unsold items inside auction record
+@api_view(['DELETE'])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAdminPermission])
+def deleteUnsoldItems(request: HttpRequest):
+    try:
+        body = decodeJSON(request.body)
+        auctionLotNumber = sanitizeNumber(body['auctionLotNumber'])
+        lot = sanitizeNumber(int(body['remainingLotNumber']))
+        remaining = remaining_collection.find_one({'lot': lot}, {'_id': 0, 'unsoldCount': 1})
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    
+    # unset the key value set
+    auction = auction_collection.find_one_and_update(
+        {'lot': auctionLotNumber},
+        {
+            '$unset': { 
+                'previousUnsoldArr': lot,
+            },
+            '$inc':{
+                'totalItems': -(remaining['unsoldCount'])
+            }
+        }
+    )
+    if not auction:
+        return Response('Cannot Delete Unsold from Auction', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return Response(f'Deleted Remaining Lot {lot} In Auction {auctionLotNumber}', status.HTTP_200_OK)
+
+# this will update sold items to database
+@api_view(['POST'])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAdminPermission])
+def auditRemainingRecord(request: HttpRequest):
+    try:
+        body = decodeJSON(request.body)
+        lot = sanitizeNumber(body['remainingLotNumber'])
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    
+    remaining = remaining_collection.find_one(
+        { 'lot': lot }, 
+        { '_id': 0, 'soldItems': 1, 'unsoldItems': 1 }
+    )
+    if not remaining:
+        return Response('Remaining Record Not Found', status.HTTP_404_NOT_FOUND)
+    for soldItem in remaining['soldItems']:
+        deducted = []
+        outOfStock = []
+        fil = { 'sku': soldItem['sku'] }
+        res = instock_collection.find_one(fil, { '_id': 0 })
+        if int(res['quantityInstock']) < 1:
+            print(f'item {soldItem['sku']} out of stock')
+            outOfStock.append(soldItem)
+        else:
+            res = instock_collection.update_one(
+                fil,
+                {
+                    '$inc': {
+                        'quantityInstock': -1
+                    }
+                }
+            )
+            if res:
+                deducted.append(soldItem)
+            else:
+                return Response(f'Cannot deduct {soldItem['sku']} from database', status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # append info to remaining record
+    res = remaining_collection.update_one(
+        { 'lot': lot }, 
+        {
+            '$set': {
+                'deducted': deducted,
+                'outOfStock': outOfStock
+            }
+        }
+    )
+    return Response({'deducted': deducted, 'outOfStock': outOfStock}, status.HTTP_200_OK)
 
 
 '''
@@ -1336,7 +1456,8 @@ def scrapePriceBySkuHomeDepot(request: HttpRequest):
 '''
 Migration stuff 
 '''
-# for instock record csv processing to mongo db
+# instock record csv migrated from SQL processing to Mongo compatible csv
+# removes row from csv result if sku existed in database
 @api_view(['POST'])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
@@ -1349,7 +1470,8 @@ def sendInstockCSV(request: HttpRequest):
     fileName = os.path.join(dirName, path)
     # parse csv to pandas data frame
     data = pd.read_csv(filepath_or_buffer=fileName)
-    
+    # indicies to remove after looping
+    to_remove = []
     # loop pandas dataframe
     for index in data.index:
         # if time is malformed set to empty string
@@ -1360,15 +1482,15 @@ def sendInstockCSV(request: HttpRequest):
             # original: 2023-08-03 17:47:00
             # targeted: 2024-01-03T05:00:00.000
             time = datetime.strptime(str(data['time'][index]), "%Y-%m-%d %H:%M:%S").isoformat()
-            data.loc[index, 'time'] = time
+            data.loc[index, 'time'] = time.replace('T', ' ')
+            print(str(data.loc[index, 'time']))
         
         # check url is http
         if 'http' not in str(data['url'][index]) or len(str(data['url'][index])) < 15 or '<' in str(data['url'][index]):
             data.loc[index, 'url'] = ''
         
-        condition = str(data['condition'][index]).title().strip()
-        
         # condition
+        condition = str(data['condition'][index]).title().strip()
         if 'A-B' in condition:
             data.loc[index, 'condition'] = 'A-B'
         elif 'API' in condition:
@@ -1389,7 +1511,29 @@ def sendInstockCSV(request: HttpRequest):
                 data.loc[index, 'msrp'] = float(msrp)
         except:
             data.loc[index, 'msrp'] = ''
-
+        
+        sku = int(data.loc[index, 'sku'])
+        print(sku)
+        # update the instock quantity if sku found in database
+        exist = instock_collection.find_one({'sku': sku})
+        if exist:    
+            quant = int(data.loc[index, 'quantityInstock'])
+            res = instock_collection.find_one_and_update(
+                { 'sku': sku },
+                {
+                    '$set': {
+                        'quantityInstock': quant,
+                    }
+                }
+            )
+            if res:
+                print(f'updated {sku} instock from {exist['quantityInstock']} to {quant}')
+                to_remove.append(index)
+        else:
+            print(sku)
+    
+    # drop all existed rows
+    data = data.drop(to_remove)
     # set output copy path
     data.to_csv(path_or_buf='./output.csv', encoding='utf-8', index=False)
     return Response(str(data), status.HTTP_200_OK)
@@ -1417,7 +1561,10 @@ def sendQACSV(request: HttpRequest):
         res = qa_collection.find_one({'sku': int(data['sku'][index])})
         if res:
             existedSKU.append(data['sku'][index])
+            print(f'{int(data['sku'][index])} exist in DB')
             continue
+        else:
+            print(f'{int(data['sku'][index])}')
         
         # time convert to iso format
         # original: 2023-08-03 17:47:00 OR 02/20/2024 11:42am
@@ -1443,7 +1590,6 @@ def sendQACSV(request: HttpRequest):
             data.loc[index, 'platform'] = 'Other'
 
     # drop existed sku
-    # data.drop(index=existedSKU, inplace=True)
     filtered_df = data[~data['sku'].isin(existedSKU)]
 
     # set output copy path
@@ -1473,8 +1619,8 @@ def fillPlatform(request: HttpRequest):
     # newvalues = { "$set": { "platform": "Other" }}
     # res = instock_collection.update_many(myquery, newvalues)
     
+    # replace T in time string
     res = instock_collection.find({'time': {'$regex': 'T'}})
-
     for item in res:
         time = item['time'].replace('T', ' ')
         res = instock_collection.update_one(
