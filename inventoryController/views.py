@@ -1,4 +1,4 @@
-import csv
+import numpy as np
 from ctypes import Array
 import os
 from urllib import response
@@ -805,8 +805,12 @@ def getAuctionCsv(request: HttpRequest):
         columns=columns
     )
     
+    # make space for top row
+    for x in range(len(topRowArr)):
+        imageArrData.insert(0, [])
     # create df for images
     image_df = pd.DataFrame(imageArrData)
+    # add empty column head for image columns
     col = len(image_df.columns)
     for x in range(col):
         columns.append('')
@@ -905,7 +909,6 @@ def createAuctionRecord(request: HttpRequest):
         body = decodeJSON(request.body)
         lot = sanitizeNumber(body['lot'])
         duplicate = sanitizeBoolean(body['duplicate'])
-        print(duplicate)
         exist = auction_collection.find_one({'lot': lot})
         if exist:
             return Response('Lot Exist', status.HTTP_409_CONFLICT)
@@ -1138,7 +1141,7 @@ def createRemainingRecord(request: HttpRequest):
     # construct remaining info
     RemainingInfo = {
         'lot': lot_number,
-        'totalItems': len(soldItems) + len(unsoldItems),
+        'totalItems': len(soldItems) + len(unsoldItems) + len(errorItems),
         'soldCount': len(soldItems),
         'unsoldCount': len(unsoldItems),
         'soldItems': soldItems,
@@ -1196,14 +1199,18 @@ def getRemainingLotNumbers(request: HttpRequest):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def importUnsoldItems(request: HttpRequest):
-    try:
-        body = decodeJSON(request.body)
-        auctionLotNumber = sanitizeNumber(int(body['auctionLotNumber']))
-        remainingLotNumber = sanitizeNumber(int(body['remainingLotNumber']))
-        auction = auction_collection.find_one({ 'lot': auctionLotNumber }, { '_id': 0, 'totalItems': 1, 'itemLotStart': 1})
-        unsoldLotStart = auction['itemLotStart'] + auction['totalItems']
-    except:
-        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    # try:
+    body = decodeJSON(request.body)
+    auctionLotNumber = sanitizeNumber(int(body['auctionLotNumber']))
+    remainingLotNumber = sanitizeNumber(int(body['remainingLotNumber']))
+    auction = auction_collection.find_one({ 'lot': auctionLotNumber }, { '_id': 0, 'totalItems': 1, 'itemLotStart': 1})
+    # check for existing data
+    print(auction[f'previousUnsoldArr.{remainingLotNumber}'])
+    if auction[f'previousUnsoldArr.{remainingLotNumber}']:
+        return Response('Already Imported', status.HTTP_409_CONFLICT)
+    unsoldLotStart = auction['itemLotStart'] + auction['totalItems']
+    # except:
+    #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     # look for remaining record
     remaining = remaining_collection.find_one({ 'lot': remainingLotNumber }, {'_id': 0, 'unsoldItems': 1})
@@ -1212,15 +1219,18 @@ def importUnsoldItems(request: HttpRequest):
     
     # loop unsold items
     remainingItemsArr = []
+    resultArr = []
     for unsold in remaining['unsoldItems']:
-        remainingItemsArr.append({**unsold, 'lot': unsoldLotStart})
-        unsoldLotStart += 1
+        remainingItemsArr.append(unsold)
     if len(remainingItemsArr) < 1:
-        return Response('No Unsold Items Found', status.HTTP_404_NOT_FOUND)
-    
-    # random sort unsold
-    # random.shuffle(remainingItemsArr)
-    
+        return Response(f'No Unsold Items Found for Lot {remainingLotNumber}', status.HTTP_404_NOT_FOUND)
+    else:
+        # randomly sort the unsold items from previous lot
+        random.shuffle(remainingItemsArr)
+        for unsold in remainingItemsArr:
+            resultArr.append({**unsold, 'lot': unsoldLotStart})
+            unsoldLotStart += 1
+
     # look for auction record
     # and insert previous remaining record into the 
     auction = auction_collection.find_one_and_update(
@@ -1270,25 +1280,28 @@ def deleteUnsoldItems(request: HttpRequest):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def auditRemainingRecord(request: HttpRequest):
-    try:
-        body = decodeJSON(request.body)
-        lot = sanitizeNumber(body['remainingLotNumber'])
-    except:
-        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
-    
+    # try:
+    body = decodeJSON(request.body)
+    lot = sanitizeNumber(body['remainingLotNumber'])
+    # get sold and unsold and processed status
     remaining = remaining_collection.find_one(
         { 'lot': lot }, 
-        { '_id': 0, 'soldItems': 1, 'unsoldItems': 1 }
+        { '_id': 0, 'soldItems': 1, 'unsoldItems': 1, 'isProcessed': 1 }
     )
     if not remaining:
         return Response('Remaining Record Not Found', status.HTTP_404_NOT_FOUND)
+    if remaining['isProcessed']:
+        return Response('Remaining Record Already Processed', status.HTTP_409_CONFLICT)
+    # except:
+    #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+
     for soldItem in remaining['soldItems']:
+        # sold in one array and out of stock in one array
         deducted = []
         outOfStock = []
         fil = { 'sku': soldItem['sku'] }
         res = instock_collection.find_one(fil, { '_id': 0 })
         if int(res['quantityInstock']) < 1:
-            print(f'item {soldItem['sku']} out of stock')
             outOfStock.append(soldItem)
         else:
             res = instock_collection.update_one(
@@ -1310,7 +1323,8 @@ def auditRemainingRecord(request: HttpRequest):
         {
             '$set': {
                 'deducted': deducted,
-                'outOfStock': outOfStock
+                'outOfStock': outOfStock,
+                'isProcessed': True
             }
         }
     )
