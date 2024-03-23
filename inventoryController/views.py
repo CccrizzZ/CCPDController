@@ -974,6 +974,7 @@ def createAuctionRecord(request: HttpRequest):
             **item, 
             'startBid': priceObj['startBid'] if 'startBid' not in item else item['startBid'], 
             'reserve': priceObj['reserve'] if 'reserve' not in item else item['reserve'],
+            'msrp': item['msrp'] if 'msrp' in item else 0
         } # start bid and reserve is calculated at getBidReserveEst
     
 
@@ -1056,27 +1057,30 @@ def updateRemainingToDB(request: HttpRequest):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def createRemainingRecord(request: HttpRequest):
+    # try:
+    # destruct from formData
+    lot_number = sanitizeNumber(int(request.data.get('lot')))
+    res = remaining_collection.find_one({'lot': lot_number})
+    if res:
+        return Response('Remaining Record Existed', status.HTTP_409_CONFLICT)
+    
+    # get itemArr in auction record
+    targetAuctionItemsArr = auction_collection.find_one({'lot': lot_number})['itemsArr']
+    if not targetAuctionItemsArr:
+        return Response(f'Auction {lot_number} Not Found', status.HTTP_404_NOT_FOUND)
+    
+    # get xls file from request (hibid default exports xls)
     try:
-        # destruct from formData
-        lot_number = sanitizeNumber(int(request.data.get('lot')))
-        res = remaining_collection.find_one({'lot': lot_number})
-        if res:
-            return Response('Remaining Record Existed', status.HTTP_409_CONFLICT)
-        
-        # get itemArr in auction record
-        targetAuctionItemsArr = auction_collection.find_one({'lot': lot_number})['itemsArr']
-        if not targetAuctionItemsArr:
-            return Response(f'Auction {lot_number} Not Found', status.HTTP_404_NOT_FOUND)
-        
-        # get xls file from request (hibid default exports xls)
         xls = request.FILES.get('xls')
-        if not xls: 
-            return Response('No File Uploaded', status.HTTP_400_BAD_REQUEST)
-        
-        # convert it into pandas dataframe
-        df = pd.DataFrame(pd.read_excel(xls))
     except:
-        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+        xls = request.FILES.get('xlsx')
+    if not xls: 
+        return Response('No File Uploaded', status.HTTP_400_BAD_REQUEST)
+    
+    # convert it into pandas dataframe
+    df = pd.DataFrame(pd.read_excel(xls))
+    # except:
+    #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     # grab all neccesary columns from remaining xls (df)
     soldItems = []
@@ -1090,6 +1094,7 @@ def createRemainingRecord(request: HttpRequest):
             # find item in matching auction record
             item = findObjectInArray(targetAuctionItemsArr, 'lot', lot)
         except:
+            print(f'Item #{lot} not found')
             # item not found or lot number not integer
             continue
         
@@ -1130,11 +1135,11 @@ def createRemainingRecord(request: HttpRequest):
                 'lot': lot,
                 'sku': sku,
                 'lead': lead,
-                'msrp': sanitizeNumber(float(item['msrp'])),
+                'msrp': sanitizeNumber(float(item['msrp'])) if 'msrp' in item else 0,
                 'shelfLocation': shelf,
                 'description': sanitizeString(row.get('shortdesc')),
                 'reserve': reserve,
-                'startBid': sanitizeNumber(float(item['startBid']))
+                'startBid': sanitizeNumber(float(item['startBid'])) if 'startBid' in item else 0,
             }
             unsoldItems.append(remainingItem)
 
@@ -1186,6 +1191,26 @@ def deleteRemainingRecord(request: HttpRequest):
 @api_view(['GET'])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
+def deleteItemInAuction(request: HttpRequest):
+    try:
+        body = decodeJSON(request.body)
+        auctionLot = sanitizeNumber(body['auctionLot'])
+        itemLot = sanitizeNumber(body['itemLot'])
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    
+    auction = auction_collection.find_one({ 'lot': auctionLot })
+    itemArr = auction['itemArr']
+    
+    for val, index in itemArr:
+        if val[itemLot]:
+            print(val[itemLot])
+    
+    return Response('Item Deleted', status.HTTP_200_OK)
+
+@api_view(['GET'])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAdminPermission])
 def getRemainingLotNumbers(request: HttpRequest):
     # grab remaining record if unsold items exist
     res = remaining_collection.find({}, { '_id': 0, 'lot': 1, 'unsoldCount': { '$gt': 0 }}).distinct('lot')
@@ -1203,15 +1228,16 @@ def importUnsoldItems(request: HttpRequest):
     body = decodeJSON(request.body)
     auctionLotNumber = sanitizeNumber(int(body['auctionLotNumber']))
     remainingLotNumber = sanitizeNumber(int(body['remainingLotNumber']))
-    auction = auction_collection.find_one({ 'lot': auctionLotNumber }, { '_id': 0, 'totalItems': 1, 'itemLotStart': 1})
+    exist = auction_collection.find_one({f'previousUnsoldArr.{remainingLotNumber}': {'$exists': True}})
+    
     # check for existing data
-    print(auction[f'previousUnsoldArr.{remainingLotNumber}'])
-    if auction[f'previousUnsoldArr.{remainingLotNumber}']:
+    if exist:
         return Response('Already Imported', status.HTTP_409_CONFLICT)
-    unsoldLotStart = auction['itemLotStart'] + auction['totalItems']
     # except:
     #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
+    auction = auction_collection.find_one({ 'lot': auctionLotNumber }, { '_id': 0, 'totalItems': 1, 'itemLotStart': 1})
+    unsoldLotStart = auction['itemLotStart'] + auction['totalItems']
     # look for remaining record
     remaining = remaining_collection.find_one({ 'lot': remainingLotNumber }, {'_id': 0, 'unsoldItems': 1})
     if not remaining:
