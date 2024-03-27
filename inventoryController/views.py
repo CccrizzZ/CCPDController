@@ -1057,18 +1057,6 @@ def updateRemainingToDB(request: HttpRequest):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def createRemainingRecord(request: HttpRequest):
-    # try:
-    # destruct from formData
-    lot_number = sanitizeNumber(int(request.data.get('lot')))
-    res = remaining_collection.find_one({'lot': lot_number})
-    if res:
-        return Response('Remaining Record Existed', status.HTTP_409_CONFLICT)
-    
-    # get itemArr in auction record
-    targetAuctionItemsArr = auction_collection.find_one({'lot': lot_number})['itemsArr']
-    if not targetAuctionItemsArr:
-        return Response(f'Auction {lot_number} Not Found', status.HTTP_404_NOT_FOUND)
-    
     # get xls file from request (hibid default exports xls)
     try:
         xls = request.FILES.get('xls')
@@ -1077,73 +1065,151 @@ def createRemainingRecord(request: HttpRequest):
     if not xls: 
         return Response('No File Uploaded', status.HTTP_400_BAD_REQUEST)
     
+    # try:
+    # destruct from formData
+    lot_number = sanitizeNumber(int(request.data.get('lot')))
+    res = remaining_collection.find_one({'lot': lot_number})
+    if res:
+        return Response('Remaining Record Existed', status.HTTP_409_CONFLICT)
+    
+    # get itemArr in auction record
+    auctionRecord = auction_collection.find_one({'lot': lot_number})
+    if not auctionRecord:
+        return Response(f'Auction {lot_number} Not Found', status.HTTP_404_NOT_FOUND)
+    targetAuctionItemsArr = auctionRecord['itemsArr']
+    targetAuctionTopRow = auctionRecord['topRow']
+    itemLotStart = auctionRecord['itemLotStart']
+    
     # convert it into pandas dataframe
     df = pd.DataFrame(pd.read_excel(xls))
     # except:
     #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
-    # grab all neccesary columns from remaining xls (df)
+    # loop rows in xls file
+    soldTopRow = []
+    unsoldTopRow = []
     soldItems = []
     unsoldItems = []
     errorItems = []
+    notInAuction = []
+    totalBidAmount = 0
     for index, row in df.iterrows():
         row = row.to_dict()
+        # continue if lot number contains letters
         try:
-            # lot number might not be int, could be '1a' '1f' 'ff'
-            lot = sanitizeNumber(int(row.get('clotnum')))
-            # find item in matching auction record
-            item = findObjectInArray(targetAuctionItemsArr, 'lot', lot)
+            lot = sanitizeNumber(int(row.get('clotnum'))) # lot number might not be int, could be '1a' '1f' 'ff'
         except:
-            print(f'Item #{lot} not found')
-            # item not found or lot number not integer
             continue
-        
-        # TODO: Add bid amount to retail manager as sells record 
-        # sanitize input
-        bid = sanitizeNumber(float(row.get('bidamount')))
         sold = sanitizeString(row.get('soldstatus'))
         lead = sanitizeString(row.get('lead'))
-        sku = sanitizeNumber(item['sku'])
-        reserve = sanitizeNumber(float(item['reserve']))
-        shelf = sanitizeString(item['shelfLocation'])
+        bid = sanitizeNumber(float(row.get('bidamount')))
         
-        # determin if it is sold or not
-        if sold == 'S' and bid > reserve:
-            # check instock database for out-of-stock items
-            # all out of stock item will goto errorItems array
-            instock = instock_collection.find_one(
-                { 'sku': sku, 'shelfLocation': shelf }, 
-                { '_id': 0, 'quantityInstock': 1 }
-            )
-            quantity = int(instock['quantityInstock'])
-            soldItem = {
-                'soldStatus': sold,
-                'bidAmount': bid,
-                'clotNumber': lot,
-                'sku': sku,
-                'lead': lead,
-                'reserve': reserve,
-                'shelfLocation': shelf,
-                'quantityInstock': quantity  # maybe check instock in unsold as well
-            }
-            if quantity > 0:
-                soldItems.append(soldItem)
-            else:
-                errorItems.append(soldItem)
-        elif sold == 'NS':
-            remainingItem = {
-                'lot': lot,
-                'sku': sku,
-                'lead': lead,
-                'msrp': sanitizeNumber(float(item['msrp'])) if 'msrp' in item else 0,
-                'shelfLocation': shelf,
-                'description': sanitizeString(row.get('shortdesc')),
-                'reserve': reserve,
-                'startBid': sanitizeNumber(float(item['startBid'])) if 'startBid' in item else 0,
-            }
-            unsoldItems.append(remainingItem)
+        # top rows
+        if lot < itemLotStart:
+            try:
+                item = findObjectInArray(targetAuctionTopRow, 'lot', lot)
+            except:
+                if lead != 'Welcome':
+                    # if not in auction record
+                    notInAuction.append({
+                        'lot': lot,
+                        'sold': sold,
+                        'lead': lead,
+                        'bid': bid
+                    })
+                continue
 
-    # construct remaining info
+            # pull toprow from item in auction record
+            reserve = sanitizeNumber(float(item['reserve']))
+            shelf = sanitizeString(item['shelfLocation'])
+            sku = sanitizeNumber(item['sku'])
+
+            # determin sold or not
+            if sold == 'S':
+                soldTopRow.append({
+                    'soldStatus': sold,
+                    'bidAmount': bid,
+                    'clotNumber': lot,
+                    'sku': sku,
+                    'lead': lead,
+                    'rseserve': reserve,
+                    'shelfLocation': shelf,
+                    'quantityInstock': 1
+                })
+                # add top row to total bid amount
+                totalBidAmount += bid
+            elif sold == 'NS':
+                unsoldTopRow.append({
+                    'lot': lot,
+                    'sku': sku,
+                    'lead': lead,
+                    'msrp': sanitizeNumber(float(item['msrp'])) if 'msrp' in item else 0,
+                    'shelfLocation': shelf,
+                    'description': sanitizeString(row.get('shortdesc')),
+                    'reserve': reserve,
+                    'startBid': sanitizeNumber(float(item['startBid'])) if 'startBid' in item else 0,
+                })
+        else:
+            try:
+                item = findObjectInArray(targetAuctionItemsArr, 'lot', lot)
+            except:
+                # push into not in auction if lot number not found in auction record
+                notInAuction.append({
+                    'lot': lot,
+                    'sold': sold,
+                    'lead': lead,
+                    'bid': bid
+                })
+                print(f'Item #{lot} not found in matching auction record')
+                continue
+
+            # pull info from item in auction record
+            reserve = sanitizeNumber(float(item['reserve']))
+            shelf = sanitizeString(item['shelfLocation'])
+            sku = sanitizeNumber(item['sku'])
+            
+            # determin sold or not
+            if sold == 'S':
+                # check instock database for out-of-stock items
+                # all out of stock item will goto errorItems array
+                instock = instock_collection.find_one(
+                    { 'sku': sku, 'shelfLocation': shelf }, 
+                    { '_id': 0, 'quantityInstock': 1 }
+                )
+                # construct instock item object
+                quantity = int(instock['quantityInstock'])
+                soldItem = {
+                    'soldStatus': sold,
+                    'bidAmount': bid,
+                    'clotNumber': lot,
+                    'sku': sku,
+                    'lead': lead,
+                    'rseserve': reserve,
+                    'shelfLocation': shelf,
+                    'quantityInstock': quantity
+                }
+                # if sold item in stock push into sold, if not push into error item
+                if quantity > 0:
+                    soldItems.append(soldItem)
+                    # TODO: Add bid amount to retail manager as sells record 
+                    totalBidAmount += bid
+                else:
+                    errorItems.append(soldItem)            
+            elif sold == 'NS':
+                # if not sold push into unsold
+                remainingItem = {
+                    'lot': lot,
+                    'sku': sku,
+                    'lead': lead,
+                    'msrp': sanitizeNumber(float(item['msrp'])) if 'msrp' in item else 0,
+                    'shelfLocation': shelf,
+                    'description': sanitizeString(row.get('shortdesc')),
+                    'reserve': reserve,
+                    'startBid': sanitizeNumber(float(item['startBid'])) if 'startBid' in item else 0,
+                }
+                unsoldItems.append(remainingItem)
+
+    # construct remaining record info
     RemainingInfo = {
         'lot': lot_number,
         'totalItems': len(soldItems) + len(unsoldItems) + len(errorItems),
@@ -1153,7 +1219,11 @@ def createRemainingRecord(request: HttpRequest):
         'unsoldItems': unsoldItems,
         'timeClosed': getIsoFormatNow(),
         'isProcessed': False,
-        'errorItems': errorItems
+        'errorItems': errorItems,
+        'totalBidAmount': totalBidAmount,
+        'notInAuction': notInAuction,
+        'soldTopRow': soldTopRow,
+        'unsoldTopRow': unsoldTopRow
     }
     remaining_collection.insert_one(RemainingInfo)
     return Response('Remaining Record Created', status.HTTP_200_OK)
@@ -1188,7 +1258,8 @@ def deleteRemainingRecord(request: HttpRequest):
         return Response('Cannot Delete From Database', status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response(f'Delete Remaining Record {remainingLotNumber}', status.HTTP_200_OK)
 
-@api_view(['GET'])
+# remove item from auction' itemArr and adjust the lot number
+@api_view(['DELETE'])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def deleteItemInAuction(request: HttpRequest):
@@ -1199,13 +1270,9 @@ def deleteItemInAuction(request: HttpRequest):
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
-    auction = auction_collection.find_one({ 'lot': auctionLot })
-    itemArr = auction['itemArr']
-    
-    for val, index in itemArr:
-        if val[itemLot]:
-            print(val[itemLot])
-    
+    deleted = auction_collection.update_one({ 'lot': auctionLot }, { '$pull': { 'itemsArr': { 'lot': itemLot } }, '$inc': {'totalItems': 1} })
+    if not deleted:
+        return Response(f'Cannot Delete Item {itemLot}', status.HTTP_200_OK)
     return Response('Item Deleted', status.HTTP_200_OK)
 
 @api_view(['GET'])

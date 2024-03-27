@@ -31,7 +31,10 @@ def unpackQAFilter(query_filter, fil, key):
         fil['$and'].append(qaf)
 
 def unpackSkuFilter(query_filter, fil):
-    if 'sku' in query_filter: 
+    if 'targetSku' in query_filter and query_filter['targetSku'] != '':
+        sku = {'sku': sanitizeNumber(int(query_filter['targetSku']))}
+        fil['$and'].append(sku)
+    elif 'sku' in query_filter: 
         sku = {'sku': {}}
         if 'gte' in query_filter['sku'] and query_filter['sku']['gte'] != '':
             sku['sku']['$gte'] = sanitizeNumber(int(query_filter['sku']['gte']))
@@ -39,19 +42,19 @@ def unpackSkuFilter(query_filter, fil):
             sku['sku']['$lte'] = sanitizeNumber(int(query_filter['sku']['lte']))
         if sku != {'sku': {}}:
             fil['$and'].append(sku)
-        
+
 def unpackPlatformFilter(query_filter, fil):
     # original platform filter
     if 'platformFilter' in query_filter and query_filter['platformFilter'] != '':
         sanitizeString(query_filter['platformFilter'])
         fil['$and'].append({'platform': query_filter['platformFilter']})
-         
+
 def unpackMarketPlaceFilter(query_filter, fil): 
         # marketplace filter
     if 'marketplaceFilter' in query_filter and query_filter['marketplaceFilter'] != '':
         sanitizeString(query_filter['marketplaceFilter'])
         fil['$and'].append({'marketplace': query_filter['marketplaceFilter']})
-        
+
 def unpackShelfLocation(query_filter, fil):
     # shelf location Filter
     if 'shelfLocationFilter' in query_filter and len(query_filter['shelfLocationFilter']) > 0:
@@ -66,7 +69,7 @@ def unpackQARecordFilter(query_filter, fil):
     # create $and array
     if '$and' not in fil:
         fil['$and'] = []
-        
+    
     # item condition filter
     if 'conditionFilter' in query_filter and query_filter['conditionFilter'] != '':
         sanitizeString(query_filter['conditionFilter'])
@@ -92,7 +95,7 @@ def unpackQARecordFilter(query_filter, fil):
     if fil['$and'] == []:
         del fil['$and']
     
-    pprint(fil)
+    print(fil)
     return fil
 
 # unpack instock inventory filter object passed in by frontend
@@ -158,4 +161,5 @@ def unpackInstockFilter(query_filter, fil):
     if fil['$and'] == []:
         del fil['$and']
     
+    print(fil)
     return fil
