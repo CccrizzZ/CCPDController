@@ -311,3 +311,46 @@ def getBidReserve(description, msrp, condition):
     if price < 11:
         startbid = low_value_start_bid
     return {'startBid': startbid, 'reserve': reserve}
+
+
+def processInstock(itemArr, instockRes, duplicate):
+    # loop all filtered instock items
+    for item in instockRes:
+        quantity = item['quantityInstock']
+        item.pop('quantityInstock')
+        
+        # get bid and reserve price
+        priceObj = getBidReserve(
+            item['description'] if 'description' in item else '', 
+            item['msrp'] if 'msrp' in item else 0, 
+            item['condition'] if 'condition' in item else 'New'
+        )
+        
+        # if specified startbid and reserve, pull from item 
+        if 'startBid' in item and 'reserve' in item:
+            priceObj = {
+                'reserve': sanitizeNumber(item['reserve']),
+                'startBid': sanitizeNumber(item['startBid'])
+            }
+        
+        # final object
+        auctionItem = {
+            **item, 
+            'startBid': priceObj['startBid'] if 'startBid' not in item else item['startBid'], 
+            'reserve': priceObj['reserve'] if 'reserve' not in item else item['reserve'],
+            'msrp': item['msrp'] if 'msrp' in item else 0,
+        } # start bid and reserve is calculated at getBidReserveEst
+
+        # create empty field if these dont exist when pulling from instock db
+        if 'description' not in auctionItem:
+            auctionItem = {**auctionItem, 'description': ''}
+        if 'lead' not in auctionItem:
+            auctionItem = {**auctionItem, 'lead': ''}
+
+        # if duplication option, duplicate the row x times
+        if duplicate and quantity > 1:
+            for x in range(quantity):
+                itemArr.append(auctionItem)
+        else:
+            itemArr.append(auctionItem)
+        return itemArr

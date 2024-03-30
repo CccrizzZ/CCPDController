@@ -2,6 +2,8 @@ import re
 import time
 import random
 
+from bs4 import BeautifulSoup
+
 # Amazon scrapping utils 
 # works for both Amazon CA nad US
 
@@ -116,14 +118,21 @@ def getMsrp(response):
 # src is the low quality image
 # Amazon CA
 def getImageUrl(response):
-    # id="imgTagWrapperId" class="imgTagWrapper"
+    # the image will be inside this div id="imgTagWrapperId" class="imgTagWrapper"
+    # gets the img tag
     img = response.xpath(f'//div[@class="{imageContainerClass}"]/child::*').extract_first()
-    if img:
-        http_pattern = re.compile(r'https?://\S+')
-        res = http_pattern.findall(img)
-        # return res[:2] # for both lq and hq image
-        # slice the last 1 char (/) in string or it will give bad request
-        return res[1][:-1]
+    # src = img.xpath('//img/@src').get()
+    
+    # use bs4 to extract src attribute of that img tag
+    soup = BeautifulSoup(img, 'html.parser')
+    src = soup.find('img')['src']
+    return src
+    # if img:
+    #     http_pattern = re.compile(r'https?://\S+')
+    #     res = http_pattern.findall(img)
+    #     # return res[:2] # for both lq and hq image
+    #     # slice the last 1 char (/) in string or it will give bad request
+    #     return res[1][:-1]
 
 # look for US and CA flag
 # <i class="icp-flyout-flag icp-flyout-flag-ca"></i>
