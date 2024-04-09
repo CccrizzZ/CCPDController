@@ -12,9 +12,10 @@ from userController.models import User
 from .models import InvitationCode, RetailRecord
 from rest_framework import status
 from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes, throttle_classes
 from rest_framework.permissions import IsAdminUser, AllowAny
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.throttling import AnonRateThrottle
 from CCPDController.permissions import IsQAPermission, IsAdminPermission, IsSuperAdminPermission
 from CCPDController.authentication import JWTAuthentication
 from CCPDController.utils import (
@@ -67,6 +68,7 @@ def checkAdminToken(request):
 # login admins
 @csrf_protect
 @api_view(['POST'])
+@throttle_classes([AnonRateThrottle])
 @permission_classes([AllowAny])
 def adminLogin(request):
     body = decodeJSON(request.body)

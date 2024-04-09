@@ -19,11 +19,12 @@ from CCPDController.utils import (
 )
 from CCPDController.permissions import IsQAPermission, IsAdminPermission
 from CCPDController.authentication import JWTAuthentication
-from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes, throttle_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from userController.models import User
 
 # pymongo
@@ -33,13 +34,6 @@ inv_collection = db['Invitations']
 
 # jwt token expiring time
 expire_days = 30
-
-@api_view(['GET'])
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsQAPermission | IsAdminPermission])
-def getTime(request):
-    print(get_client_ip(request))
-    return Response(str(datetime.now()))
 
 # will be called every time on open app
 @csrf_protect
@@ -74,6 +68,7 @@ def checkToken(request):
 # login any user and issue jwt
 # _id: xxx
 @api_view(['POST'])
+@throttle_classes([AnonRateThrottle])
 @permission_classes([AllowAny])
 def login(request): 
     try:
@@ -100,12 +95,12 @@ def login(request):
         return Response('User Inactive', status.HTTP_401_UNAUTHORIZED)
 
     try:
-        expire = datetime.utcnow() + timedelta(days=expire_days)
+        expire = datetime.now(datetime.UTC) + timedelta(days=expire_days)
         # construct payload
         payload = {
             'id': str(ObjectId(user['_id'])),
-            'exp': datetime.utcnow() + timedelta(days=expire_days),
-            'iat': datetime.utcnow()
+            'exp': datetime.now(datetime.UTC) + timedelta(days=expire_days),
+            'iat': datetime.now(datetime.UTC)
         }
         
         # construct tokent and return it
@@ -125,9 +120,9 @@ def login(request):
     
     # construct response store jwt token in http only cookie
     # cookie wont show unless sets samesite to string "None" and secure to True
-    response.set_cookie('token', token, httponly=True, expires=expire, samesite="None", secure=True)
+    response.set_cookie('token', token, httponly=True, expires=expire, samesite="None", secure=True, partition=True)
     # response.set_cookie('token', token, httponly=True, expires=expire, samesite="Lax", secure=True) 
-    response.set_cookie('csrftoken', get_token(request), httponly=True, expires=expire)
+    response.set_cookie('csrftoken', get_token(request), httponly=True, expires=expire, partition=True)
     return response
 
 # get user information without password
@@ -171,6 +166,7 @@ def getUserById(request):
 # inviationCode: xxx (pending)
 @csrf_protect
 @api_view(['POST'])
+@throttle_classes([AnonRateThrottle])
 def registerUser(request):
     body = checkBody(decodeJSON(request.body))
     try:
