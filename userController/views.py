@@ -5,6 +5,7 @@ from django.views.decorators.csrf import csrf_protect
 from django.middleware.csrf import get_token
 from datetime import date, datetime, timedelta
 from bson.objectid import ObjectId
+from CCPDController.throttles import AppIDThrottle
 from CCPDController.utils import (
     decodeJSON, 
     get_db_client,
@@ -12,7 +13,6 @@ from CCPDController.utils import (
     sanitizeEmail, 
     sanitizePassword, 
     checkBody, 
-    get_client_ip, 
     sanitizeInvitationCode, 
     sanitizeName, 
     user_time_format
@@ -24,7 +24,6 @@ from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework import status
 from rest_framework.response import Response
-from rest_framework.throttling import AnonRateThrottle
 from userController.models import User
 
 # pymongo
@@ -68,7 +67,7 @@ def checkToken(request):
 # login any user and issue jwt
 # _id: xxx
 @api_view(['POST'])
-@throttle_classes([AnonRateThrottle])
+@throttle_classes([AppIDThrottle])
 @permission_classes([AllowAny])
 def login(request): 
     try:
@@ -166,7 +165,7 @@ def getUserById(request):
 # inviationCode: xxx (pending)
 @csrf_protect
 @api_view(['POST'])
-@throttle_classes([AnonRateThrottle])
+@throttle_classes([AppIDThrottle])
 def registerUser(request):
     body = checkBody(decodeJSON(request.body))
     try:

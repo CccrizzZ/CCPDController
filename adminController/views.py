@@ -13,10 +13,10 @@ from .models import InvitationCode, RetailRecord
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes, authentication_classes, throttle_classes
-from rest_framework.permissions import IsAdminUser, AllowAny
 from rest_framework.exceptions import AuthenticationFailed
-from rest_framework.throttling import AnonRateThrottle
-from CCPDController.permissions import IsQAPermission, IsAdminPermission, IsSuperAdminPermission
+from rest_framework.permissions import AllowAny
+from CCPDController.throttles import AppIDThrottle
+from CCPDController.permissions import  IsAdminPermission, IsSuperAdminPermission
 from CCPDController.authentication import JWTAuthentication
 from CCPDController.utils import (
     decodeJSON,
@@ -68,7 +68,7 @@ def checkAdminToken(request):
 # login admins
 @csrf_protect
 @api_view(['POST'])
-@throttle_classes([AnonRateThrottle])
+@throttle_classes([AppIDThrottle])
 @permission_classes([AllowAny])
 def adminLogin(request):
     body = decodeJSON(request.body)
@@ -283,7 +283,6 @@ def getInstockDistinct(request):
     # except:
     #     return Response('Cannot Pull From Database', status.HTTP_400_BAD_REQUEST)
     return Response(res, status.HTTP_200_OK)
-    
 
 '''
 QA inventory stuff
@@ -490,3 +489,13 @@ def getSalesRecordsBySku(request, sku):
 @permission_classes([IsAdminPermission])
 def createReturnRecord(request):
     return Response('Return Record')
+
+
+'''
+Admin Settings's stuff
+'''
+@api_view(['POST'])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsSuperAdminPermission])
+def updateAdminSettings(request):
+    return Response('Updated Admin Settings')

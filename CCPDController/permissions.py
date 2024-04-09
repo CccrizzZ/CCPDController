@@ -1,5 +1,4 @@
 from rest_framework import permissions
-from rest_framework.permissions import BasePermission
 from CCPDController.utils import get_db_client
 
 # pymongo
@@ -41,10 +40,9 @@ class IsSuperAdminPermission(permissions.BasePermission):
             return True
 
 # user blocked by IP black list
-class BlockedPermission(permissions.BasePermission):
-    message = 'You Are Blocked From Our Service'
+# class BlockedPermission(permissions.BasePermission):
+#     message = 'You Are Blocked From Our Service'
     
-    def has_permission(self, request, view):
-        ipAddress = request.META['REMOTE_ADDR']
-        # query database for blocked ip address
-        # blocked = 
+#     def has_permission(self, request, view):
+#         ipAddress = request.META['REMOTE_ADDR']
+

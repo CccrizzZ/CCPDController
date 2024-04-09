@@ -130,12 +130,10 @@ REST_FRAMEWORK = {
         # 'CCPDController.authentication.JWTAuthentication',
     ],
     'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle'
+        # 'CCPDController.throttles.AppIDThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '20/min',
-        'user': '20/min'
+        # 'app_id': '20/min',
     }
 }
 
