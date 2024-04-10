@@ -25,6 +25,7 @@ urlpatterns = [
     path("deleteInstockBySku", views.deleteInstockBySku, name="deleteInstockBySku"),
     path("getAuctionCsv", views.getAuctionCsv, name="getAuctionCsv"),
     path("getAbnormalInstockInventory", views.getAbnormalInstockInventory, name="getAbnormalInstockInventory"),
+    path("restock", views.restock, name="restock"),
     # auction function
     path("getAuctionRemainingRecord", views.getAuctionRemainingRecord, name="getAuctionRemainingRecord"),
     path("createAuctionRecord", views.createAuctionRecord, name="createAuctionRecord"),

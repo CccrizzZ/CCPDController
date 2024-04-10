@@ -3,7 +3,7 @@ import jwt
 from django.conf import settings
 from django.views.decorators.csrf import csrf_protect
 from django.middleware.csrf import get_token
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from bson.objectid import ObjectId
 from CCPDController.throttles import AppIDThrottle
 from CCPDController.utils import (
@@ -93,19 +93,19 @@ def login(request):
     if bool(user['userActive']) == False:
         return Response('User Inactive', status.HTTP_401_UNAUTHORIZED)
 
-    try:
-        expire = datetime.now(datetime.UTC) + timedelta(days=expire_days)
-        # construct payload
-        payload = {
-            'id': str(ObjectId(user['_id'])),
-            'exp': datetime.now(datetime.UTC) + timedelta(days=expire_days),
-            'iat': datetime.now(datetime.UTC)
-        }
+    # try:
+    expire = datetime.now(tz=timezone.utc) + timedelta(days=expire_days)
+    # construct payload
+    payload = {
+        'id': str(ObjectId(user['_id'])),
+        'exp': datetime.now(tz=timezone.utc) + timedelta(days=expire_days),
+        'iat': datetime.now(tz=timezone.utc)
+    }
         
-        # construct tokent and return it
-        token = jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm="HS256")
-    except:
-        return Response('Failed to Generate Token', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    # construct tokent and return it
+    token = jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm="HS256")
+    # except:
+    #     return Response('Failed to Generate Token', status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     # return the id and name with token in http only cookie
     info = {
@@ -115,13 +115,13 @@ def login(request):
 
     # get user agent
     response = Response(info, status.HTTP_200_OK)
-    userAgent = request.META['HTTP_USER_AGENT']
+    # userAgent = request.META['HTTP_USER_AGENT']
     
     # construct response store jwt token in http only cookie
     # cookie wont show unless sets samesite to string "None" and secure to True
-    response.set_cookie('token', token, httponly=True, expires=expire, samesite="None", secure=True, partition=True)
+    response.set_cookie('token', token, httponly=True, expires=expire, samesite="None", secure=True)
     # response.set_cookie('token', token, httponly=True, expires=expire, samesite="Lax", secure=True) 
-    response.set_cookie('csrftoken', get_token(request), httponly=True, expires=expire, partition=True)
+    response.set_cookie('csrftoken', get_token(request), httponly=True, expires=expire)
     return response
 
 # get user information without password

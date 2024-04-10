@@ -6,7 +6,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_protect
 from django.middleware.csrf import get_token
 from bson.objectid import ObjectId
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from inventoryController.unpack_filter import unpackQARecordFilter
 from userController.models import User
 from .models import InvitationCode, RetailRecord
@@ -96,11 +96,11 @@ def adminLogin(request):
 
     try:
         # construct payload
-        expire = datetime.utcnow() + timedelta(days=admin_expire_days)
+        expire = datetime.now(tz=timezone.utc) + timedelta(days=admin_expire_days)
         payload = {
             'id': str(ObjectId(user['_id'])),
             'exp': expire,
-            'iat': datetime.utcnow()
+            'iat': datetime.now(tz=timezone.utc)
         }
         
         # construct tokent and return it

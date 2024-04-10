@@ -1,3 +1,4 @@
+from hmac import new
 import numpy as np
 from ctypes import Array
 import os
@@ -13,7 +14,7 @@ from inventoryController.models import AuctionItem, AuctionRecord, InstockInvent
 from CCPDController.scrape_utils import extract_urls, getCurrency, getImageUrl, getMsrp, getTitle
 from CCPDController.utils import (
     convertToAmountPerDayData, decodeJSON, 
-    get_db_client, 
+    get_db_client, getBlobTimeString, 
     getIsoFormatInv, 
     getNDayBeforeToday, getTodayTimeRangeFil, 
     populateSetData, sanitizeBoolean, 
@@ -29,7 +30,8 @@ from CCPDController.utils import (
     getBidReserve,
     product_image_container_client,
     inv_iso_format,
-    processInstock
+    processInstock,
+    azure_blob_client
 )
 from CCPDController.permissions import IsQAPermission, IsAdminPermission, IsSuperAdminPermission
 from CCPDController.authentication import JWTAuthentication
@@ -60,6 +62,7 @@ qa_collection = db[qa_inventory_db_name]
 instock_collection = db['InstockInventory']
 user_collection = db['User']
 auction_collection = db['AuctionHistory']
+restock_collection = db['RestockRecords']
 remaining_collection = db['RemainingHistory']
 ua = UserAgent()
 
@@ -437,6 +440,80 @@ def getAllShelfSheet(request: HttpRequest):
     response['Content-Disposition'] = 'attachment; filename="shelfSheet.csv"'
     return response
 
+@api_view(['POST'])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsQAPermission])
+def restock(request: HttpRequest):
+    try:
+        body = decodeJSON(request.body)
+        oldSku = sanitizeString((body['oldSku']))
+        newSku = sanitizeNumber(body['newSku'])
+        ownerName = sanitizeString(body['ownerName'])
+        newShelfLocation = sanitizeString(body['newShelfLocation'])
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    
+    # pull old inventory with old sku
+    oldInv = instock_collection.find_one({'sku': int(oldSku)})
+    if not oldInv:
+        return Response('Inventory Not Found', status.HTTP_404_NOT_FOUND)
+    
+    # update instock inventory
+    res = instock_collection.update_one(
+        { 'sku': int(oldSku) },
+        { 
+            '$inc': { 'quantityInstock': 1 },
+            '$set': {
+                'sku': newSku, 
+                'shelfLocation': newShelfLocation,  # 2024-01-26 12:50:00
+                'time': getIsoFormatInv(),
+                'qaName': ownerName
+            }
+        }
+    )
+    qaUpdate = qa_collection.update_one(
+        { 'sku': int(oldSku) },
+        {
+            '$inc': {
+                'restocked': 1
+            }
+        }
+    )
+    if not res or not qaUpdate:
+        return Response('Failed to Update', status.HTTP_404_NOT_FOUND)
+    
+    # change the id on the blob tag 
+    sku = f"sku = '{oldSku}'" 
+    blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=sku)
+    newTime = getBlobTimeString()
+    for item in blob_list:
+        blob_client = azure_blob_client.get_blob_client(container='product-image', blob=item.name)
+        tags = blob_client.get_blob_tags()
+        updated_tags = {
+            'sku': newSku, 
+            'time': newTime,
+            'ownerName': ownerName
+        }
+        tags.update(updated_tags)
+        blob_client.set_blob_tags(tags)
+        
+# 2024-01-26
+# 30058
+# Ivan Li
+# B22
+
+    # add it into restock records
+    insert = restock_collection.insert_one({
+        'oldSku': int(oldSku),
+        'newSku': newSku,
+        'oldTime': oldInv['time'],
+        'newTime': newTime,
+        'oldOwner': oldInv['qaName'],
+        'newOwner': ownerName
+    })
+    if not insert:
+        return Response('Failed to Insert Re-stock Record', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return Response(f'Re-stocked {oldSku} to {newSku}', status.HTTP_200_OK)
 
 '''
 In-stock stuff
