@@ -149,17 +149,17 @@ def getInventoryInfoByOwnerId(request: HttpRequest):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission | IsAdminPermission])
 def getInventoryByOwnerName(request: HttpRequest):
-    # try:
-    body = decodeJSON(request.body)
-    name = sanitizeString(body['ownerName'])
-    currPage = sanitizeNumber(body['page'])
-    # except:
-    #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    try:
+        body = decodeJSON(request.body)
+        name = sanitizeString(body['ownerName'])
+        currPage = sanitizeNumber(body['page'])
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
         
     # get all qa inventory
     # default item per page is 10
     skip = currPage * 10
-    res = qa_collection.find({ 'ownerName': name }, { '_id': 0 }).sort('sku', pymongo.DESCENDING).skip(skip).limit(10)
+    res = qa_collection.find({ 'ownerName': name }, { '_id': 0 }).sort('time', pymongo.DESCENDING).skip(skip).limit(10)
     if not res:
         return Response('No Inventory Found', status.HTTP_200_OK)
     
@@ -204,7 +204,7 @@ def getQAConditionInfoByOwnerName(request: HttpRequest):
 def createInventory(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
-        sku = sanitizeSku(body['sku'])
+        sku = sanitizeNumber(body['sku'])
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
 
@@ -258,54 +258,84 @@ def updateInventoryBySku(request: HttpRequest, sku: str):
     try:
         # convert to object id
         body = decodeJSON(request.body)
-        sku = sanitizeSku(int(sku))
-        if not sku:
-            return Response('Invalid SKU', status.HTTP_400_BAD_REQUEST)
-        
-        # check body
+        sku = int(sanitizeString(sku))
         newInv = body['newInventoryInfo']
-        newInventory = InventoryItem(
-            time = newInv['time'],
-            sku = newInv['sku'],
-            itemCondition = newInv['itemCondition'],
-            comment = newInv['comment'],
-            link = newInv['link'],
-            platform = newInv['platform'],
-            shelfLocation = newInv['shelfLocation'],
-            amount = newInv['amount'],
-            owner =  newInv['owner'] if 'owner' in newInv else '',
-            ownerName = newInv['ownerName'],
-            marketplace = newInv['marketplace'] if 'marketplace' in newInv else ''
-        )
     except:
-        return Response('Invalid Inventory Info', status.HTTP_406_NOT_ACCEPTABLE)
-    
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+
     # check if inventory exists
     oldInv = qa_collection.find_one({ 'sku': sku })
     if not oldInv:
         return Response('Inventory Not Found', status.HTTP_404_NOT_FOUND)
     
+    # unpack inventory
+    try:
+        # construct $set object
+        setObj = {}
+        newSku = 0
+        if 'time' in newInv:
+            setObj['time'] = sanitizeString(newInv['time'])
+        if 'sku' in newInv:
+            setObj['sku'] = sanitizeNumber(newInv['sku'])
+            if setObj['sku'] != sku:
+                newSku = setObj['sku']
+        if 'itemCondition' in newInv:
+            setObj['itemCondition'] = sanitizeString(newInv['itemCondition'])
+        if 'comment' in newInv:
+            setObj['comment'] = sanitizeString(newInv['comment'])
+        if 'link' in newInv:
+            setObj['link'] = sanitizeString(newInv['link'])
+        if 'platform' in newInv:
+            setObj['platform'] = sanitizeString(newInv['platform'])
+        if 'shelfLocation' in newInv:
+            setObj['shelfLocation'] = sanitizeString(newInv['shelfLocation'])
+        if 'amount' in newInv:
+            setObj['amount'] = sanitizeNumber(newInv['amount'])
+        if 'marketplace' in newInv:
+            setObj['marketplace'] = sanitizeString(newInv['marketplace'])
+    except:
+        return Response('Invalid Inventory Info', status.HTTP_406_NOT_ACCEPTABLE)
+    
+
+    # try:
+    # if sku changed, change blob tags
+    if newSku != 0:
+        # update blob tags (rename)
+        queryTag = f"sku = '{sku}'" 
+        blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=queryTag)
+        for item in blob_list:
+            blob_client = azure_blob_client.get_blob_client(container='product-image', blob=item.name)
+            tags = blob_client.get_blob_tags()
+            updated_tags = {
+                'sku': newSku,
+            }
+            tags.update(updated_tags)
+            blob_client.set_blob_tags(tags)
+            
+            # 135/135_IMG_20240411_144545.jpg
+            # change to 
+            # 145/145_IMG_20240411_144545.jpg
+            
+            length = len(str(sku)) * 2 + 1
+            newBlobName = f'{newSku}/{newSku}_{item.name[length:]}'
+            print(newBlobName) 
+            
+            # Create BlobClient for both source and destination
+            destination_blob_client = azure_blob_client.get_blob_client(container='product-image', blob=newBlobName)
+            copy_operation = destination_blob_client.start_copy_from_url(blob_client.url)
+            
+            blob_client.delete_blob()
+    
     # update inventory
     res = qa_collection.update_one(
         { 'sku': sku },
-        {
-            '$set': 
-            {
-                'sku': newInventory.sku,
-                'amount': newInventory.amount,
-                'itemCondition': newInventory.itemCondition,
-                'platform': newInventory.platform,
-                'shelfLocation': newInventory.shelfLocation,
-                'comment': newInventory.comment,
-                'link': newInventory.link,
-                'marketplace': newInventory.marketplace
-            }
-        }
+        { '$set': setObj }
     )
-    
-    # return update status 
     if not res:
-        return Response('Update Failed', status.HTTP_404_NOT_FOUND)
+        return Response('Update Failed', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    # except:
+    #     return Response('Update Photos Failed', status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response('Update Success', status.HTTP_200_OK)
 
 # delete inventory by sku

@@ -304,6 +304,7 @@ def getQARecordsByPage(request):
     sanitizeNumber(body['page'])
     sanitizeNumber(body['itemsPerPage'])
     query_filter = body['filter']
+    sortSku = sanitizeNumber(body['skuSort']) if 'skuSort' in body else -1
 
     # strip the ilter into mongoDB query object in fil
     fil = {}
@@ -311,15 +312,21 @@ def getQARecordsByPage(request):
     # except:
     #     return Response('Invalid Body: ', status.HTTP_400_BAD_REQUEST)
     
+    # sort by sku
+    if sortSku > 0:
+        sortSku = pymongo.DESCENDING
+    else: 
+        sortSku = pymongo.ASCENDING
+        
     try:
         arr = []
         skip = body['page'] * body['itemsPerPage']
         
         if fil == {}:
-            query = qa_collection.find().sort('sku', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
+            query = qa_collection.find().sort('sku', sortSku).skip(skip).limit(body['itemsPerPage'])
             count = qa_collection.count_documents({})
         else:
-            query = qa_collection.find(fil).sort('sku', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
+            query = qa_collection.find(fil).sort('sku', sortSku).skip(skip).limit(body['itemsPerPage'])
             count = qa_collection.count_documents(fil)
 
         for inventory in query:
