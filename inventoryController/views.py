@@ -1,4 +1,5 @@
 from hmac import new
+from turtle import update
 import numpy as np
 from ctypes import Array
 import os
@@ -296,36 +297,54 @@ def updateInventoryBySku(request: HttpRequest, sku: str):
     except:
         return Response('Invalid Inventory Info', status.HTTP_406_NOT_ACCEPTABLE)
     
-
     # try:
     # if sku changed, change blob tags
     if newSku != 0:
+        # check if blob with that sku exist
+        queryTag = f"sku = '{newSku}'" 
+        target_blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=queryTag)
+        if sum(1 for _ in target_blob_list) > 0:
+            return Response('Target Blob Exist', status.HTTP_409_CONFLICT)
+        
         # update blob tags (rename)
         queryTag = f"sku = '{sku}'" 
         blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=queryTag)
+        newTag = {}
+        
+        # copy the blobs to new sku destination
         for item in blob_list:
-            blob_client = azure_blob_client.get_blob_client(container='product-image', blob=item.name)
-            tags = blob_client.get_blob_tags()
-            updated_tags = {
-                'sku': newSku,
-            }
-            tags.update(updated_tags)
-            blob_client.set_blob_tags(tags)
+            source_blob = azure_blob_client.get_blob_client(container='product-image', blob=item.name)
+            tags = source_blob.get_blob_tags()
+            if newTag == {}:
+                newTag = {
+                    **tags,
+                    'sku': newSku,
+                }
             
-            # 135/135_IMG_20240411_144545.jpg
-            # change to 
-            # 145/145_IMG_20240411_144545.jpg
-            
+            # make new blob name
             length = len(str(sku)) * 2 + 1
             newBlobName = f'{newSku}/{newSku}_{item.name[length:]}'
-            print(newBlobName) 
             
-            # Create BlobClient for both source and destination
+            # copy and delete
             destination_blob_client = azure_blob_client.get_blob_client(container='product-image', blob=newBlobName)
-            copy_operation = destination_blob_client.start_copy_from_url(blob_client.url)
+            operation = destination_blob_client.start_copy_from_url(source_blob.url)
+            while True:
+                props = destination_blob_client.get_blob_properties()
+                copy_stats = props.copy.status
+                if copy_stats == "success":
+                    break
+                elif copy_stats == "pending":
+                    continue
+                else:
+                    break
             
-            blob_client.delete_blob()
-    
+            # add tags to new blobs
+            if copy_stats == "success":
+                source_blob.delete_blob()
+                destination_blob_client.set_blob_tags(newTag)
+            else:
+                return Response('Failed to Update Related Photos', status.HTTP_200_OK)
+
     # update inventory
     res = qa_collection.update_one(
         { 'sku': sku },
@@ -707,7 +726,9 @@ def createInstockInventory(request: HttpRequest):
         res = instock_collection.find_one({'sku': sku})
         if res:
             return Response(f'Inventory {sku} Already Instock', status.HTTP_409_CONFLICT)
-        msrp = sanitizeNumber(body['msrp']) if 'msrp' in body else ''
+        msrp = 0
+        if 'mrsp' in body:
+            msrp = sanitizeNumber(body['msrp'])
         shelfLocation = sanitizeString(body['shelfLocation'])
         condition = sanitizeString(body['condition'])
         platform = sanitizeString(body['platform'])

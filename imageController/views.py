@@ -1,5 +1,7 @@
 import os
 import io
+import re
+from django.http import HttpRequest
 import requests
 import pillow_heif
 from PIL import Image
@@ -205,3 +207,9 @@ def uploadScrapedImage(request):
     except ResourceExistsError:
         return Response(imageName + ' Already Exist!', status.HTTP_409_CONFLICT)
     return Response('found', status.HTTP_200_OK)
+
+@api_view(['POST'])
+@authentication_classes([JWTAuthentication])
+@permission_classes([IsAdminPermission])
+def rotateImage(request: HttpRequest):
+    return Response('', status.HTTP_200_OK)

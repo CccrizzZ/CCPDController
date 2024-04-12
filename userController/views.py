@@ -83,7 +83,7 @@ def login(request):
     # check if user exist
     # only retrive user status and role
     user = user_collection.find_one({
-        'email': email,
+        'email': email.lower(),
         'password': password
     }, { 'userActive': 1, 'role': 1, 'name': 1 })
     

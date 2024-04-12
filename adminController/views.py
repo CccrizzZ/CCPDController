@@ -82,7 +82,7 @@ def adminLogin(request):
     # check if user exist
     # only retrive user status and role
     user = user_collection.find_one({
-        'email': email,
+        'email': email.lower(),
         'password': password
     }, { 'userActive': 1, 'role': 1, 'name': 1 })
     
@@ -304,7 +304,19 @@ def getQARecordsByPage(request):
     sanitizeNumber(body['page'])
     sanitizeNumber(body['itemsPerPage'])
     query_filter = body['filter']
-    sortSku = sanitizeNumber(body['skuSort']) if 'skuSort' in body else -1
+    sortingOption = sanitizeNumber(body['sortingOption']) if 'sortingOption' in body else ''
+
+    # sort_by = 'time'
+    # direction = -1
+    
+    # if sortingOption == 'Time ASC':
+    #     direction = 1
+    # elif sortingOption == 'SKU ASC':
+    #     sort_by = 'sku'
+    #     direction = 1
+    # elif sortingOption == 'SKU DESC':
+    #     sort_by = 'sku'
+    #     direction = 1
 
     # strip the ilter into mongoDB query object in fil
     fil = {}

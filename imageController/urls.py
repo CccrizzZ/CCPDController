@@ -8,4 +8,5 @@ urlpatterns = [
     path("getUrlsBySku", views.getUrlsBySku, name="getUrlsBySku"),
     path("deleteImageByName", views.deleteImageByName, name="deleteImageByName"),
     path("uploadScrapedImage", views.uploadScrapedImage, name="uploadScrapedImage"),
+    path("rotateImage", views.rotateImage, name="rotateImage"),
 ]
