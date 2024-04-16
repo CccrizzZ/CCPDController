@@ -304,7 +304,7 @@ def getQARecordsByPage(request):
     sanitizeNumber(body['page'])
     sanitizeNumber(body['itemsPerPage'])
     query_filter = body['filter']
-    sortingOption = sanitizeNumber(body['sortingOption']) if 'sortingOption' in body else ''
+    # sortingOption = sanitizeNumber(body['sortingOption']) if 'sortingOption' in body else ''
 
     # sort_by = 'time'
     # direction = -1
@@ -325,20 +325,20 @@ def getQARecordsByPage(request):
     #     return Response('Invalid Body: ', status.HTTP_400_BAD_REQUEST)
     
     # sort by sku
-    if sortSku > 0:
-        sortSku = pymongo.DESCENDING
-    else: 
-        sortSku = pymongo.ASCENDING
+    # if sortSku > 0:
+    #     sortSku = pymongo.DESCENDING
+    # else: 
+    #     sortSku = pymongo.ASCENDING
         
     try:
         arr = []
         skip = body['page'] * body['itemsPerPage']
         
         if fil == {}:
-            query = qa_collection.find().sort('sku', sortSku).skip(skip).limit(body['itemsPerPage'])
+            query = qa_collection.find().sort('time', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
             count = qa_collection.count_documents({})
         else:
-            query = qa_collection.find(fil).sort('sku', sortSku).skip(skip).limit(body['itemsPerPage'])
+            query = qa_collection.find(fil).sort('time', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
             count = qa_collection.count_documents(fil)
 
         for inventory in query:

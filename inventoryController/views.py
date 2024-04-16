@@ -1080,7 +1080,7 @@ def createAuctionRecord(request: HttpRequest):
     instock = instock_collection.find(
         fil, 
         { '_id': 0, 'sku': 1, 'lead': 1, 'msrp': 1, 'description': 1, 'shelfLocation': 1, 'condition': 1, 'quantityInstock': 1 }
-    ).sort({ 'msrp': -1 })
+    ).sort('mrsp', -1)
     
     # loading mongo result into itemsArr with or without duplicating items
     itemsArr = processInstock(itemsArr, instock, duplicate)

@@ -325,7 +325,6 @@ def processInstock(itemArr, instockRes, duplicate):
             item['msrp'] if 'msrp' in item else 0, 
             item['condition'] if 'condition' in item else 'New'
         )
-        
         # if specified startbid and reserve, pull from item 
         if 'startBid' in item and 'reserve' in item:
             priceObj = {
@@ -353,4 +352,4 @@ def processInstock(itemArr, instockRes, duplicate):
                 itemArr.append(auctionItem)
         else:
             itemArr.append(auctionItem)
-        return itemArr
+    return itemArr
