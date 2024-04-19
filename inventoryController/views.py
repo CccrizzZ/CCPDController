@@ -1,4 +1,5 @@
 from hmac import new
+import io
 from turtle import update
 import numpy as np
 from ctypes import Array
@@ -11,6 +12,8 @@ from pytest import console_main
 import requests
 from scrapy.http import HtmlResponse
 from datetime import datetime, timedelta
+
+import xlrd
 from inventoryController.models import AuctionItem, AuctionRecord, InstockInventory, InventoryItem
 from CCPDController.scrape_utils import extract_urls, getCurrency, getImageUrl, getMsrp, getTitle
 from CCPDController.utils import (
@@ -1183,10 +1186,17 @@ def createRemainingRecord(request: HttpRequest):
     targetAuctionTopRow = auctionRecord['topRow'] if 'topRow' in auctionRecord else []
     itemLotStart = auctionRecord['itemLotStart'] if 'itemLotStart' in auctionRecord else 100
     
-    # convert it into pandas dataframe
-    df = pd.DataFrame(pd.read_excel(xls))
-    # except:
-    #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        # load the file with io
+        file_in_memory = io.BytesIO(xls.read())
+        workbook = xlrd.open_workbook_xls(file_contents=file_in_memory.getvalue(), encoding_override='utf-8')
+        sheet = workbook.sheet_by_index(0)
+        header = sheet.row_values(0)
+        data = [sheet.row_values(row) for row in range(1, sheet.nrows)]
+        df = pd.DataFrame(data, columns=header)
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     # loop rows in xls file
     soldTopRow = []
@@ -1319,14 +1329,17 @@ def createRemainingRecord(request: HttpRequest):
 
     # search for item not in remaining records but in auction record
     jointAuc = targetAuctionTopRow + targetAuctionItemsArr
+    jointAuc_data = [{'sku': aucItem['sku']} for aucItem in jointAuc]
     jointSold = soldTopRow + soldItems
+    jointSold_data = [{'sku': soldItem['sku']} for soldItem in jointSold]
     jointUnsold = unsoldTopRow + unsoldItems + errorItems + notInAuction
+    jointUnsold_data = [{'sku': unsoldItem['sku']} for unsoldItem in jointUnsold]
     notInRemaining = []
     # loop arrays populate not in remaining
-    for item in jointAuc:
-        if item not in jointSold or item not in jointUnsold:
-            notInRemaining.append(item)
-
+    for item in jointAuc_data:
+        if item not in jointSold_data:
+            if item not in jointUnsold_data:
+                notInRemaining.append(item)
 
     # construct remaining record info
     RemainingInfo = {
@@ -1596,12 +1609,14 @@ def auditRemainingRecord(request: HttpRequest):
     # except:
     #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
 
+    deducted = []
+    outOfStock = []
     for soldItem in remaining['soldItems']:
         # sold in one array and out of stock in one array
-        deducted = []
-        outOfStock = []
         fil = { 'sku': soldItem['sku'] }
-        res = instock_collection.find_one(fil, { '_id': 0 })
+        res = instock_collection.find_one(fil, { '_id': 0, 'quantityInstock': 1 })
+        
+        # check if it is still instock
         if int(res['quantityInstock']) < 1:
             outOfStock.append(soldItem)
         else:
@@ -1609,7 +1624,8 @@ def auditRemainingRecord(request: HttpRequest):
                 fil,
                 {
                     '$inc': {
-                        'quantityInstock': -1
+                        'quantityInstock': -1,
+                        'quantitySold': 1
                     }
                 }
             )
@@ -1618,6 +1634,7 @@ def auditRemainingRecord(request: HttpRequest):
             else:
                 return Response(f'Cannot deduct {soldItem['sku']} from database', status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    print(deducted)
     # append info to remaining record
     res = remaining_collection.update_one(
         { 'lot': lot }, 
