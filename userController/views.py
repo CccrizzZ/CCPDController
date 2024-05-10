@@ -1,4 +1,5 @@
 import time
+from django.http import HttpRequest
 import jwt
 from django.conf import settings
 from django.views.decorators.csrf import csrf_protect
@@ -273,3 +274,8 @@ def getAllActiveQAPersonal(request):
     for u in res:
         arr.append(u['name'])
     return Response(arr, status.HTTP_200_OK)
+
+@api_view(['POST'])
+def loginFirebase(request: HttpRequest):
+    body = decodeJSON(request.body) 
+    print(body)

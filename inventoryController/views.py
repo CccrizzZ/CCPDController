@@ -12,7 +12,6 @@ from pytest import console_main
 import requests
 from scrapy.http import HtmlResponse
 from datetime import datetime, timedelta
-
 import xlrd
 from inventoryController.models import AuctionItem, AuctionRecord, InstockInventory, InventoryItem
 from CCPDController.scrape_utils import extract_urls, getCurrency, getImageUrl, getMsrp, getTitle
@@ -549,11 +548,6 @@ def restock(request: HttpRequest):
         tags.update(updated_tags)
         blob_client.set_blob_tags(tags)
         
-# 2024-01-26
-# 30058
-# Ivan Li
-# B22
-
     # add it into restock records
     insert = restock_collection.insert_one({
         'oldSku': int(oldSku),
@@ -846,7 +840,7 @@ def getAuctionCsv(request: HttpRequest):
             if 'reserve' in item:
                 reserve = sanitizeNumber(item['reserve'])
             else:
-                reserve = ''
+                reserve = reserve_default
         
             row = {
                 'Lot': sanitizeNumber(item['lot']), 
@@ -888,6 +882,10 @@ def getAuctionCsv(request: HttpRequest):
             lead = sanitizeString(item['lead'])
         else:
             lead = ''
+        if 'reserve' in item:
+            reserve = sanitizeNumber(item['reserve'])
+        else:
+            reserve = reserve_default
         
         sku = sanitizeNumber(item['sku'])
         itemLot = sanitizeNumber(item['lot'])
@@ -902,7 +900,7 @@ def getAuctionCsv(request: HttpRequest):
             'item': sku,
             'vendor': vendor_name,
             'start bid': default_start_bid,
-            'reserve': reserve_default,
+            'reserve': reserve,
             'Est': msrp,
         }
         itemsArrData.append(row)
@@ -1662,12 +1660,14 @@ def generateDescriptionBySku(request: HttpRequest):
         condition = sanitizeString(body['condition'])
         comment = sanitizeString(body['comment'])
         title = sanitizeString(body['title'])
+        titleTemplate = sanitizeString(body['titleTemplate'])
+        descTemplate = sanitizeString(body['descTemplate'])
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     # call chat gpt to generate description
-    lead = generate_title(title)
-    desc = generate_description(condition, comment, title)
+    lead = generate_title(title, titleTemplate)
+    desc = generate_description(condition, comment, title, descTemplate)
     return Response({ 'lead': lead, 'desc': desc }, status.HTTP_200_OK)
 
 # return info from amazon for given sku

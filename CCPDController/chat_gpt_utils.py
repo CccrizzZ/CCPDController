@@ -6,17 +6,18 @@ load_dotenv()
 
 # chat gpt's natural language processing model engine's name & key
 model_engine = "gpt-3.5-turbo-instruct"
-# openai.api_key = os.getenv('OPENAI_API_KEY')
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
-# TypeError: Missing required arguments; Expected either ('messages' and 'model') or ('messages', 'model' and 'stream') arguments to be given
 # short description (lead on auction flex max 40 char )
-def generate_title(title) -> str:
+def generate_title(title, template) -> str:
+    if template == '':
+        template = "You are an Auctioneer, based on the information, create a short product title. The character limit for product title is 50 characters. " + title + "."
+    
     res = client.chat.completions.create(
         messages=[
             {
                 "role": "user",
-                "content": f"You are an Auctioneer, based on the information, create a short product title. The character limit for product title is 50 characters. {title}.",
+                "content": template,
             }
         ],
         model="gpt-3.5-turbo",
@@ -25,14 +26,17 @@ def generate_title(title) -> str:
     return res.choices[0].message.content.strip()
 
 # full description
-def generate_description(condition, comment, description) -> str:
+def generate_description(condition, comment, description, template) -> str:
+    if template == '':
+        template = "Please generate a product description in the format '[Item Condition] - [Item information]', The character limit for Item information is 250 characters."
+
     res = client.chat.completions.create(
         messages=[
             { "role": "user", "content": f"Item Condition: {condition}, {comment}." },
             { "role": "user", "content": f"Item information: {description}." },
             { 
                 "role": "user", 
-                "content": f"Please generate a product description in the format '[Item Condition] - [Item information]', The character limit for Item information is 250 characters." 
+                "content": template 
             },
         ],
         model="gpt-3.5-turbo",
