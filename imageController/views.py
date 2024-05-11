@@ -23,6 +23,7 @@ from CCPDController.permissions import IsQAPermission, IsAdminPermission
 from dotenv import load_dotenv
 from urllib import parse
 load_dotenv()
+from django.views.decorators.cache import never_cache
 
 # Mongo DB
 db = get_db_client()
@@ -61,6 +62,7 @@ def getUrlsByOwner(request):
 
 # sku: str
 # returns an array of image uri (for public access)
+@never_cache
 @api_view(['POST'])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
@@ -212,4 +214,37 @@ def uploadScrapedImage(request):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def rotateImage(request: HttpRequest):
+    # try:
+    body = decodeJSON(request.body)
+    sku = sanitizeNumber(int(body['sku']))
+    name = sanitizeString(body['name'])
+    rotationIndex = sanitizeNumber(body['rotationIndex'])
+    # except:
+    # return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    
+    # update image in azure blob
+    imageName = parse.unquote(f'{str(sku)}/{name}')
+    print(imageName)
+    blob_client = product_image_container_client.get_blob_client(imageName)
+    tags = blob_client.get_blob_tags()
+    print(blob_client.blob_name)
+    print(blob_client.blob_name.format)
+    blob_data = blob_client.download_blob()
+    image_stream = io.BytesIO(blob_data.readall())
+    
+    
+    print('rotate: ')
+    print(rotationIndex * 90)
+    # rotate
+    image = Image.open(image_stream)
+    rotated_image = image.rotate(90 * rotationIndex)
+    
+    print(rotated_image.width)
+    print(rotated_image.height)
+    output_stream = io.BytesIO()
+    rotated_image.save(output_stream, format='JPEG')
+    output_stream.seek(0)
+    
+    blob_client.upload_blob(output_stream, blob_type="BlockBlob", overwrite=True)
+    blob_client.set_blob_tags(tags)
     return Response('', status.HTTP_200_OK)

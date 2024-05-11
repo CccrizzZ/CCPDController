@@ -1,5 +1,6 @@
 from hmac import new
 import io
+import stat
 from turtle import update
 import numpy as np
 from ctypes import Array
@@ -593,10 +594,10 @@ def getInstockByPage(request: HttpRequest):
     
     # see if filter is applied to determine the query
     if fil == {}:
-        query = instock_collection.find().sort('sku', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
+        query = instock_collection.find().sort('time', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
         count = instock_collection.count_documents({})
     else:
-        query = instock_collection.find(fil).sort('sku', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
+        query = instock_collection.find(fil).sort('time', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
         count = instock_collection.count_documents(fil)
 
     # get rid of object id
