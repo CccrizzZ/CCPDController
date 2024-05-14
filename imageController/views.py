@@ -78,7 +78,9 @@ def getUrlsBySku(request):
     arr = []
     for blob in blob_list:
         blob_client = product_image_container_client.get_blob_client(blob.name)
-        arr.append(blob_client.url)
+        last_modified_time = blob_client.get_blob_properties().last_modified.timestamp()
+        # arr.append(blob_client.url)
+        arr.append(f"{blob_client.url}?updated={last_modified_time}")
         
     if len(arr) < 1:
         return Response('No images found for sku', status.HTTP_404_NOT_FOUND)
@@ -104,7 +106,9 @@ def uploadImage(request, ownerId, owner, sku):
         "owner": ownerId,
         "ownerName": owner
     }
-    print(len(request.FILES))
+    
+    print(request.FILES)
+    
     if len(request.FILES) < 1:
         return Response('No images to upload', status.HTTP_200_OK)
     res = {}
@@ -214,37 +218,39 @@ def uploadScrapedImage(request):
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def rotateImage(request: HttpRequest):
-    # try:
-    body = decodeJSON(request.body)
-    sku = sanitizeNumber(int(body['sku']))
-    name = sanitizeString(body['name'])
-    rotationIndex = sanitizeNumber(body['rotationIndex'])
-    # except:
-    # return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    try:
+        body = decodeJSON(request.body)
+        sku = sanitizeNumber(int(body['sku']))
+        name = sanitizeString(body['name'])
+        # remove query parameters in blob name
+        name = name.split('?')[0]
+        rotationIndex = sanitizeNumber(body['rotationIndex']) 
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
-    # update image in azure blob
+    # pull image fron azure blob container
     imageName = parse.unquote(f'{str(sku)}/{name}')
-    print(imageName)
     blob_client = product_image_container_client.get_blob_client(imageName)
     tags = blob_client.get_blob_tags()
-    print(blob_client.blob_name)
-    print(blob_client.blob_name.format)
     blob_data = blob_client.download_blob()
     image_stream = io.BytesIO(blob_data.readall())
     
+    rotation = 0
+    if (rotationIndex == 1):
+        rotation = -90         # some how the rotation is reversed here in pillow
+    elif (rotationIndex == 2):
+        rotation = 180
+    elif (rotationIndex == 3):
+        rotation = 90          # this was -90 in react app
     
-    print('rotate: ')
-    print(rotationIndex * 90)
     # rotate
     image = Image.open(image_stream)
-    rotated_image = image.rotate(90 * rotationIndex)
-    
-    print(rotated_image.width)
-    print(rotated_image.height)
+    rotated_image = image.rotate(rotation, expand=True)
     output_stream = io.BytesIO()
     rotated_image.save(output_stream, format='JPEG')
     output_stream.seek(0)
     
+    # upload and set tags
     blob_client.upload_blob(output_stream, blob_type="BlockBlob", overwrite=True)
     blob_client.set_blob_tags(tags)
     return Response('', status.HTTP_200_OK)

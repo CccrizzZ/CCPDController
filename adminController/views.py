@@ -299,30 +299,30 @@ QA inventory stuff
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getQARecordsByPage(request):
-    # try:
-    body = decodeJSON(request.body)
-    sanitizeNumber(body['page'])
-    sanitizeNumber(body['itemsPerPage'])
-    query_filter = body['filter']
-    # sortingOption = sanitizeNumber(body['sortingOption']) if 'sortingOption' in body else ''
+    try:
+        body = decodeJSON(request.body)
+        sanitizeNumber(body['page'])
+        sanitizeNumber(body['itemsPerPage'])
+        query_filter = body['filter']
+        # sortingOption = sanitizeNumber(body['sortingOption']) if 'sortingOption' in body else ''
 
-    # sort_by = 'time'
-    # direction = -1
-    
-    # if sortingOption == 'Time ASC':
-    #     direction = 1
-    # elif sortingOption == 'SKU ASC':
-    #     sort_by = 'sku'
-    #     direction = 1
-    # elif sortingOption == 'SKU DESC':
-    #     sort_by = 'sku'
-    #     direction = 1
+        # sort_by = 'time'
+        # direction = -1
+        
+        # if sortingOption == 'Time ASC':
+        #     direction = 1
+        # elif sortingOption == 'SKU ASC':
+        #     sort_by = 'sku'
+        #     direction = 1
+        # elif sortingOption == 'SKU DESC':
+        #     sort_by = 'sku'
+        #     direction = 1
 
-    # strip the ilter into mongoDB query object in fil
-    fil = {}
-    unpackQARecordFilter(query_filter, fil)
-    # except:
-    #     return Response('Invalid Body: ', status.HTTP_400_BAD_REQUEST)
+        # strip the ilter into mongoDB query object in fil
+        fil = {}
+        unpackQARecordFilter(query_filter, fil)
+    except:
+        return Response('Invalid Body: ', status.HTTP_400_BAD_REQUEST)
     
     # sort by sku
     # if sortSku > 0:
@@ -337,9 +337,11 @@ def getQARecordsByPage(request):
         if fil == {}:
             query = qa_collection.find().sort('time', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
             count = qa_collection.count_documents({})
+            recorded = qa_collection.count_documents({'recorded': True})
         else:
             query = qa_collection.find(fil).sort('time', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
             count = qa_collection.count_documents(fil)
+            recorded = qa_collection.count_documents({**fil, 'recorded': True})
 
         for inventory in query:
                 inventory['_id'] = str(inventory['_id'])
@@ -350,7 +352,7 @@ def getQARecordsByPage(request):
             return Response([], status.HTTP_200_OK)
     except:
         return Response('Cannot Fetch From Database', status.HTTP_500_INTERNAL_SERVER_ERROR)
-    return Response({"arr": arr, "count": count}, status.HTTP_200_OK)
+    return Response({"arr": arr, "count": count, "recorded": recorded}, status.HTTP_200_OK)
 
 @api_view(['DELETE'])
 @authentication_classes([JWTAuthentication])
