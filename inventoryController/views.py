@@ -1,15 +1,6 @@
-from hmac import new
 import io
-import stat
-from turtle import update
-import numpy as np
-from ctypes import Array
 import os
-from urllib import response
-from uu import decode
 from django.http import HttpRequest
-from numpy import NaN
-from pytest import console_main
 import requests
 from scrapy.http import HtmlResponse
 from datetime import datetime, timedelta
@@ -31,15 +22,13 @@ from CCPDController.utils import (
     sanitizeString,
     full_iso_format,
     findObjectInArray,
-    getBidReserve,
     product_image_container_client,
     inv_iso_format,
     processInstock,
     azure_blob_client
 )
 from CCPDController.permissions import IsQAPermission, IsAdminPermission, IsSuperAdminPermission
-from CCPDController.authentication import JWTAuthentication
-from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
 from fake_useragent import UserAgent
@@ -77,7 +66,6 @@ QA Inventory stuff
 # query param sku for inventory db row
 # sku: string
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission | IsAdminPermission])
 def getInventoryBySku(request: HttpRequest):
     try:
@@ -100,7 +88,6 @@ def getInventoryBySku(request: HttpRequest):
 # get all inventory of owner by page
 # id: string
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission | IsAdminPermission])
 def getInventoryByOwnerId(request: HttpRequest, page):
     try:
@@ -125,7 +112,6 @@ def getInventoryByOwnerId(request: HttpRequest, page):
 # for charts and overview data
 # id: string
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission | IsAdminPermission])
 def getInventoryInfoByOwnerId(request: HttpRequest):
     try:
@@ -150,7 +136,6 @@ def getInventoryInfoByOwnerId(request: HttpRequest):
 # get all qa inventory by qa name
 # ownerName: string
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission | IsAdminPermission])
 def getInventoryByOwnerName(request: HttpRequest):
     try:
@@ -177,7 +162,6 @@ def getInventoryByOwnerName(request: HttpRequest):
 # get all qa inventory condition stats for graph by qa name
 # ownerName: string
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission | IsAdminPermission])
 def getQAConditionInfoByOwnerName(request: HttpRequest):
     # try:
@@ -203,7 +187,6 @@ def getQAConditionInfoByOwnerName(request: HttpRequest):
 
 # create single inventory Q&A record
 @api_view(['PUT'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission | IsAdminPermission])
 def createInventory(request: HttpRequest):
     try:
@@ -256,7 +239,6 @@ def createInventory(request: HttpRequest):
 }
 """
 @api_view(['PUT'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission | IsAdminPermission])
 def updateInventoryBySku(request: HttpRequest, sku: str):
     try:
@@ -364,7 +346,6 @@ def updateInventoryBySku(request: HttpRequest, sku: str):
 # QA personal can only delete record created within 24h
 # sku: string
 @api_view(['DELETE'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission])
 def deleteInventoryBySku(request: HttpRequest):
     try:
@@ -402,7 +383,6 @@ def deleteInventoryBySku(request: HttpRequest):
 
 # get all QA shelf location
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getAllQAShelfLocations(request: HttpRequest):
     try:
@@ -413,7 +393,6 @@ def getAllQAShelfLocations(request: HttpRequest):
 
 # get all qa record today plus 7 days prior's record
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getDailyQARecordData(request: HttpRequest):
     # get owners of qa record in 7 days time range
@@ -448,7 +427,6 @@ def getDailyQARecordData(request: HttpRequest):
 
 # get todays shelf location sheet by user name
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission])
 def getShelfSheetByUser(request: HttpRequest):
     try:
@@ -468,7 +446,6 @@ def getShelfSheetByUser(request: HttpRequest):
 
 # get end of the day shelf location sheet for all records submitted today
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getAllShelfSheet(request: HttpRequest):
     con = { 'time': getTodayTimeRangeFil() }
@@ -493,7 +470,6 @@ def getAllShelfSheet(request: HttpRequest):
     return response
 
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission])
 def restock(request: HttpRequest):
     try:
@@ -577,7 +553,6 @@ In-stock stuff
 #   keywordFilter: string[],
 # }
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getInstockByPage(request: HttpRequest):
     body = decodeJSON(request.body)
@@ -620,7 +595,6 @@ def getInstockByPage(request: HttpRequest):
     return Response({ "arr": arr, "count": count, "chartData": output }, status.HTTP_200_OK)
 
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getInstockBySku(request: HttpRequest):
     try:
@@ -638,7 +612,6 @@ def getInstockBySku(request: HttpRequest):
     return Response(res, status.HTTP_200_OK)
 
 @api_view(['PUT'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def updateInstockBySku(request: HttpRequest):
     try:
@@ -683,7 +656,6 @@ def updateInstockBySku(request: HttpRequest):
     return Response('Update Success', status.HTTP_200_OK)
 
 @api_view(['DELETE'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsSuperAdminPermission])
 def deleteInstockBySku(request: HttpRequest):
     try:
@@ -704,7 +676,6 @@ def deleteInstockBySku(request: HttpRequest):
 
 # get all in-stock shelf location
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getAllShelfLocations(request: HttpRequest):
     try:
@@ -715,7 +686,6 @@ def getAllShelfLocations(request: HttpRequest):
 
 # converts qa record to inventory
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def createInstockInventory(request: HttpRequest):
     try:
@@ -778,7 +748,6 @@ def createInstockInventory(request: HttpRequest):
 
 # get all filtered instock inventory with no lead or description
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getAbnormalInstockInventory(request: HttpRequest):
     # try:
@@ -801,7 +770,6 @@ Auction Stuff
 '''
 # generate instock inventory csv file competible with hibid
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getAuctionCsv(request: HttpRequest):
     try:
@@ -959,7 +927,6 @@ def getAuctionCsv(request: HttpRequest):
     return response
 
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getAuctionRemainingRecord(request: HttpRequest):
     # get everything
@@ -975,7 +942,6 @@ def getAuctionRemainingRecord(request: HttpRequest):
     return Response({'auctions': auctions, 'remaining': remaining}, status.HTTP_200_OK)
 
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def addTopRowItem(request: HttpRequest):
     try:
@@ -1009,7 +975,6 @@ def addTopRowItem(request: HttpRequest):
     return Response('Item Inserted', status.HTTP_200_OK)
 
 @api_view(['DELETE'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def deleteTopRowItem(request: HttpRequest):
     try:
@@ -1036,7 +1001,6 @@ def deleteTopRowItem(request: HttpRequest):
     return Response('Item Deleted', status.HTTP_200_OK)
 
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def createAuctionRecord(request: HttpRequest):
     try:
@@ -1120,7 +1084,6 @@ def createAuctionRecord(request: HttpRequest):
     return Response(f'Auction Record {lot} Created', status.HTTP_200_OK)
 
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def updateRemainingToDB(request: HttpRequest):
     # try:
@@ -1156,7 +1119,6 @@ def updateRemainingToDB(request: HttpRequest):
 # takes XLS file from Hibid and creat remaining record in DB
 # default remaining sheet is XLS
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def createRemainingRecord(request: HttpRequest):
     # get xls file from request (hibid default exports xls)
@@ -1361,7 +1323,6 @@ def createRemainingRecord(request: HttpRequest):
     return Response('Remaining Record Created', status.HTTP_200_OK)
 
 @api_view(['DELETE'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def deleteAuctionRecord(request: HttpRequest):
     try:
@@ -1376,7 +1337,6 @@ def deleteAuctionRecord(request: HttpRequest):
     return Response(f'Delete Auction {auctionLotNumber}', status.HTTP_200_OK)
 
 @api_view(['DELETE'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def deleteRemainingRecord(request: HttpRequest):
     try:
@@ -1392,7 +1352,6 @@ def deleteRemainingRecord(request: HttpRequest):
 
 # remove item from auction' itemArr and adjust the lot number
 @api_view(['DELETE'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def deleteItemInAuction(request: HttpRequest):
     try:
@@ -1414,7 +1373,6 @@ def deleteItemInAuction(request: HttpRequest):
     return Response('Item Deleted', status.HTTP_200_OK)
 
 @api_view(['PUT'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def updateItemInAuction(request: HttpRequest):
     try:
@@ -1446,7 +1404,7 @@ def updateItemInAuction(request: HttpRequest):
     return Response(f'Updated Item {itemLot} in Auction {auctionLot}')
 
 @api_view(['PUT'])
-@authentication_classes
+@permission_classes([IsAdminPermission])
 def addSelectionToAuction(request: HttpRequest):
     fil = {}
     try:
@@ -1496,7 +1454,6 @@ def addSelectionToAuction(request: HttpRequest):
     return Response(f'Selection Added to Auction {auctionLot}', status.HTTP_200_OK)
 
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getRemainingLotNumbers(request: HttpRequest):
     # grab remaining record if unsold items exist
@@ -1508,7 +1465,6 @@ def getRemainingLotNumbers(request: HttpRequest):
 
 # add unsold items to auction record 
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def importUnsoldItems(request: HttpRequest):
     # try:
@@ -1561,7 +1517,6 @@ def importUnsoldItems(request: HttpRequest):
 
 # delete unsold items inside auction record
 @api_view(['DELETE'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def deleteUnsoldItems(request: HttpRequest):
     try:
@@ -1590,7 +1545,6 @@ def deleteUnsoldItems(request: HttpRequest):
 
 # this will update sold items to database
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def auditRemainingRecord(request: HttpRequest):
     # try:
@@ -1653,7 +1607,6 @@ Scraping stuff
 '''
 # description: string
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def generateDescriptionBySku(request: HttpRequest):
     try:
@@ -1662,6 +1615,7 @@ def generateDescriptionBySku(request: HttpRequest):
         comment = sanitizeString(body['comment'])
         title = sanitizeString(body['title'])
         titleTemplate = sanitizeString(body['titleTemplate'])
+        print(titleTemplate)
         descTemplate = sanitizeString(body['descTemplate'])
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
@@ -1674,7 +1628,6 @@ def generateDescriptionBySku(request: HttpRequest):
 # return info from amazon for given sku
 # sku: string
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def scrapeInfoBySkuAmazon(request: HttpRequest):
     try:
@@ -1736,7 +1689,6 @@ def scrapeInfoBySkuAmazon(request: HttpRequest):
 # return msrp from home depot for given sku
 # sku: string
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def scrapePriceBySkuHomeDepot(request: HttpRequest):
     try:
@@ -1792,7 +1744,6 @@ Migration stuff
 # instock record csv migrated from SQL processing to Mongo compatible csv
 # removes row from csv result if sku existed in database
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def sendInstockCSV(request: HttpRequest):
     body = decodeJSON(request.body)
@@ -1874,7 +1825,6 @@ def sendInstockCSV(request: HttpRequest):
 # for qa record csv processing to mongo db
 # detects and removes existing sku in QARecords
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def sendQACSV(request: HttpRequest):
     body = decodeJSON(request.body)
@@ -1931,7 +1881,6 @@ def sendQACSV(request: HttpRequest):
 
 
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def fillPlatform(request: HttpRequest):
     # find

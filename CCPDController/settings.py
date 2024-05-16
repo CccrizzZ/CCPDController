@@ -128,6 +128,7 @@ REST_FRAMEWORK = {
     # default auth class for all routes
     'DEFAULT_AUTHENTICATION_CLASSES': [
         # 'CCPDController.authentication.JWTAuthentication',
+        'CCPDController.authentication.FirebaseAuthentication'
     ],
     'DEFAULT_THROTTLE_CLASSES': [
         # 'CCPDController.throttles.AppIDThrottle',

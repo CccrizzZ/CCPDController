@@ -15,11 +15,11 @@ from CCPDController.utils import (
     sanitizePassword, 
     checkBody, 
     sanitizeInvitationCode, 
-    sanitizeName, 
+    sanitizeName,
+    sanitizeString, 
     user_time_format
 )
 from CCPDController.permissions import IsQAPermission, IsAdminPermission
-from CCPDController.authentication import JWTAuthentication
 from rest_framework.decorators import api_view, permission_classes, authentication_classes, throttle_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.exceptions import AuthenticationFailed
@@ -38,9 +38,8 @@ expire_days = 30
 # will be called every time on open app
 @csrf_protect
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission | IsAdminPermission])
-def checkToken(request):
+def checkToken(request: HttpRequest):
     # get token
     token = request.COOKIES.get('token')
     if not token:
@@ -70,7 +69,7 @@ def checkToken(request):
 @api_view(['POST'])
 @throttle_classes([AppIDThrottle])
 @permission_classes([AllowAny])
-def login(request): 
+def login(request: HttpRequest): 
     try:
         body = decodeJSON(request.body)
         # sanitize
@@ -128,9 +127,8 @@ def login(request):
 # get user information without password
 # _id: xxx
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission])
-def getUserById(request):
+def getUserById(request: HttpRequest):
     try:
         # convert to BSON
         body = decodeJSON(request.body)
@@ -166,8 +164,9 @@ def getUserById(request):
 # inviationCode: xxx (pending)
 @csrf_protect
 @api_view(['POST'])
+@authentication_classes([AllowAny])
 @throttle_classes([AppIDThrottle])
-def registerUser(request):
+def registerUser(request: HttpRequest):
     body = checkBody(decodeJSON(request.body))
     try:
         # sanitize
@@ -219,9 +218,8 @@ def registerUser(request):
 # _id: xxx
 # newPassword: xxx
 @api_view(['PUT'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission | IsQAPermission])
-def changeOwnPassword(request):
+def changeOwnPassword(request: HttpRequest):
     try:
         # convert to BSON
         body = decodeJSON(request.body)
@@ -245,9 +243,8 @@ def changeOwnPassword(request):
 
 @csrf_protect
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission | IsQAPermission])
-def logout(request):
+def logout(request: HttpRequest):
     # construct response
     response = Response('User Logout', status.HTTP_200_OK)
     try:
@@ -259,23 +256,57 @@ def logout(request):
     return response
 
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission | IsQAPermission])
-def getIsWorkHour(request):
+def getIsWorkHour(request: HttpRequest):
     return Response(getIsWorkingHourEST(), status.HTTP_200_OK)
 
 
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
-def getAllActiveQAPersonal(request):
+def getAllActiveQAPersonal(request: HttpRequest):
     res = user_collection.find({'role': 'QAPersonal', 'userActive': True}, {'_id':0, 'name': 1})
     arr = []
     for u in res:
         arr.append(u['name'])
     return Response(arr, status.HTTP_200_OK)
 
+'''
+Firebase authentication
+added because google is phasing out 3rd-party cookies around q1 2025
+'''
 @api_view(['POST'])
-def loginFirebase(request: HttpRequest):
-    body = decodeJSON(request.body) 
-    print(body)
+@throttle_classes([AppIDThrottle])
+# @authentication_classes([FirebaseAuthentication])
+# @permission_classes([IsAdminPermission])
+def registerFirebase(request: HttpRequest):
+    try:
+        body = decodeJSON(request.body)
+        name = sanitizeString(body['name'])
+        email = sanitizeString(body['email'])
+        password = sanitizeString(body['password'])
+        role = sanitizeString(body['role'])
+    except:
+        return Response('', status.HTTP_400_BAD_REQUEST)
+    # email and password to firebase
+    
+    # email and name plus role to mongo db
+    
+    return Response('', status.HTTP_200_OK)
+
+@api_view(['POST'])
+@permission_classes([IsAdminPermission | IsQAPermission])
+def getUserRBACInfo(request: HttpRequest):
+    try:
+        body = decodeJSON(request.body)
+        email = sanitizeString(body['email'])
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    
+    # pull basic info from database
+    res = user_collection.find_one(
+        {'email': email},
+        {'name': 1, 'role': '1'}
+    )
+    if not res:
+        return Response(f'No Such User {email}', status.HTTP_500_INTERNAL_SERVER_ERROR)    
+    return Response(res, status.HTTP_200_OK)

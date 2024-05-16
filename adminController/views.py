@@ -2,7 +2,6 @@ import jwt
 import uuid
 import pymongo
 from django.conf import settings
-from django.shortcuts import render
 from django.views.decorators.csrf import csrf_protect
 from django.middleware.csrf import get_token
 from bson.objectid import ObjectId
@@ -12,12 +11,11 @@ from userController.models import User
 from .models import InvitationCode, RetailRecord
 from rest_framework import status
 from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes, authentication_classes, throttle_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny
 from CCPDController.throttles import AppIDThrottle
 from CCPDController.permissions import  IsAdminPermission, IsSuperAdminPermission
-from CCPDController.authentication import JWTAuthentication
 from CCPDController.utils import (
     decodeJSON,
     get_db_client, 
@@ -42,10 +40,10 @@ return_collection = db['Return']
 # admin jwt token expiring time
 admin_expire_days = 90
 
+# login admins (replaced by firebase)
 # check admin token
 @csrf_protect
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def checkAdminToken(request):
     # get token from cookie, token is 100% set because of permission
@@ -65,7 +63,7 @@ def checkAdminToken(request):
             return Response({ 'id': str(ObjectId(user['_id'])), 'name': user['name'], 'role': user['role']}, status.HTTP_200_OK)
     return Response('Token Not Found, Please Login Again', status.HTTP_100_CONTINUE)
 
-# login admins
+# login admins (replaced by firebase)
 @csrf_protect
 @api_view(['POST'])
 @throttle_classes([AppIDThrottle])
@@ -126,9 +124,9 @@ def adminLogin(request):
 User manager stuff
 '''
 # create user with custom roles 
+# update: added firebase authentication with mongodb info storing
 @csrf_protect
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsSuperAdminPermission])
 def createUser(request):
     try:
@@ -154,7 +152,6 @@ def createUser(request):
 # delete user by id
 # id: string
 @api_view(['DELETE'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsSuperAdminPermission])
 def deleteUserById(request):
     try:
@@ -177,7 +174,6 @@ def deleteUserById(request):
 # id: string
 # body: UserDetail
 @api_view(['PUT'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsSuperAdminPermission])
 def updateUserById(request, uid):
     try:
@@ -206,7 +202,6 @@ def updateUserById(request, uid):
     return Response('Password Updated', status.HTTP_200_OK)
 
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getAllUserInfo(request):
     userArr = []
@@ -216,7 +211,6 @@ def getAllUserInfo(request):
     return Response(userArr, status.HTTP_200_OK)
 
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getAllInvitationCode(request): 
     codeArr = []
@@ -226,7 +220,6 @@ def getAllInvitationCode(request):
 
 # admin generate invitation code for newly hired QA personal to join
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsSuperAdminPermission])
 def issueInvitationCode(request):
     # generate a uuid for invitation code
@@ -244,7 +237,6 @@ def issueInvitationCode(request):
     return Response('Invitation Code Created', status.HTTP_200_OK)
 
 @api_view(['DELETE'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsSuperAdminPermission])
 def deleteInvitationCode(request):
     try:
@@ -263,7 +255,6 @@ def deleteInvitationCode(request):
 # get all distinct admin name in instock db
 # get all distinct QA name in instock db
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getInstockDistinct(request):
     # try:
@@ -296,7 +287,6 @@ QA inventory stuff
 #   marketplaceFilter: str 
 # }
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getQARecordsByPage(request):
     try:
@@ -355,7 +345,6 @@ def getQARecordsByPage(request):
     return Response({"arr": arr, "count": count, "recorded": recorded}, status.HTTP_200_OK)
 
 @api_view(['DELETE'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def deleteQARecordsBySku(request, sku): 
     try:
@@ -373,7 +362,6 @@ def deleteQARecordsBySku(request, sku):
 
 # sku: str
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getQARecordBySku(request, sku):
     sku = int(sku)
@@ -393,7 +381,6 @@ def getQARecordBySku(request, sku):
 # currPage: str
 # itemsPerPage: str
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getProblematicRecords(request):
     arr = []
@@ -406,7 +393,6 @@ def getProblematicRecords(request):
 # set problem to true for qa records
 # isProblem: bool
 @api_view(['PATCH'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def setProblematicBySku(request, sku):
     try:
@@ -432,7 +418,6 @@ Retail and return stuff
 # page: number
 # itemsPerPage: number
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getSalesRecordsByPage(request):
     try:
@@ -457,7 +442,6 @@ def getSalesRecordsByPage(request):
 
 # RetailRecord: RetailRecord
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def createSalesRecord(request):
     try:
@@ -485,7 +469,6 @@ def createSalesRecord(request):
 
 # one SKU could have multiple retail records with different info
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def getSalesRecordsBySku(request, sku):
     try:
@@ -506,7 +489,6 @@ def getSalesRecordsBySku(request, sku):
 # retailRecordId: string
 # returnRecord: ReturnRecord
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def createReturnRecord(request):
     return Response('Return Record')
@@ -516,7 +498,6 @@ def createReturnRecord(request):
 Admin Settings's stuff
 '''
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsSuperAdminPermission])
 def updateAdminSettings(request):
     return Response('Updated Admin Settings')

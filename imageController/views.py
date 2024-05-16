@@ -1,13 +1,12 @@
 import os
 import io
-import re
 from django.http import HttpRequest
 import requests
 import pillow_heif
 from PIL import Image
 from azure.core.exceptions import ResourceExistsError
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from CCPDController.utils import (
     decodeJSON, 
@@ -18,7 +17,6 @@ from CCPDController.utils import (
     get_db_client,
     product_image_container_client,
 )
-from CCPDController.authentication import JWTAuthentication
 from CCPDController.permissions import IsQAPermission, IsAdminPermission
 from dotenv import load_dotenv
 from urllib import parse
@@ -31,9 +29,8 @@ qa_collection = db['Inventory']
 
 # return array of all image url from owner
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission | IsAdminPermission])
-def getUrlsByOwner(request):
+def getUrlsByOwner(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
         sanitizeString(body['ownerName'])
@@ -64,9 +61,8 @@ def getUrlsByOwner(request):
 # returns an array of image uri (for public access)
 @never_cache
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
-def getUrlsBySku(request):
+def getUrlsBySku(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
         sanitizeNumber(int(body['sku']))
@@ -88,9 +84,8 @@ def getUrlsBySku(request):
 
 # single image upload
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission | IsAdminPermission])
-def uploadImage(request, ownerId, owner, sku):
+def uploadImage(request: HttpRequest, ownerId, owner, sku):
     # request body content type is file form therefore only binary data allowed
     # sku will be in the path parameter
     # request.FILES looks like this and is a multi-value dictionary
@@ -143,9 +138,8 @@ def uploadImage(request, ownerId, owner, sku):
     return Response('Upload success', status.HTTP_200_OK)
 
 @api_view(['DELETE'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission | IsAdminPermission])
-def deleteImageByName(request):
+def deleteImageByName(request: HttpRequest):
     body = decodeJSON(request.body)
     sku = sanitizeNumber(int(body['sku']))
     name = sanitizeString(body['name'])
@@ -163,9 +157,8 @@ def deleteImageByName(request):
 # url: string
 # sku: string
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsQAPermission | IsAdminPermission])
-def uploadScrapedImage(request):
+def uploadScrapedImage(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
         url = body['url']
@@ -215,7 +208,6 @@ def uploadScrapedImage(request):
     return Response('found', status.HTTP_200_OK)
 
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
 @permission_classes([IsAdminPermission])
 def rotateImage(request: HttpRequest):
     try:

@@ -11,7 +11,9 @@ client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 # short description (lead on auction flex max 40 char )
 def generate_title(title, template) -> str:
     if template == '':
-        template = "You are an Auctioneer, based on the information, create a short product title. The character limit for product title is 50 characters. " + title + "."
+        template = "You are an Auctioneer, based on the information, create a short product title. The character limit for the product title is 50 characters. " + title + "."
+    else:
+        template = template + ' ' + title
     
     res = client.chat.completions.create(
         messages=[

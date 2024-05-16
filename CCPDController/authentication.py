@@ -1,5 +1,6 @@
 import jwt
-from rest_framework.authentication import CSRFCheck, TokenAuthentication
+from firebase_admin import auth
+from rest_framework.authentication import CSRFCheck, TokenAuthentication, BaseAuthentication
 from bson.objectid import ObjectId
 from django.conf import settings
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
@@ -59,3 +60,44 @@ class JWTAuthentication(TokenAuthentication):
         # check the reason why csrf token cannot be fetch on logout
         # enforce_csrf(request)
         return self.authenticate_credentials(payload['id'])
+
+class FirebaseAuthentication(BaseAuthentication):
+    def authenticate(self, request):
+        # read token in header
+        auth_header = request.META.get("HTTP_AUTHORIZATION")
+        if not auth_header:
+            print("No auth token provided")
+            raise PermissionDenied("No auth token provided")
+    
+        # decode token
+        id_token = auth_header.split(" ").pop()
+        decoded_token = None
+        try:
+            decoded_token = auth.verify_id_token(id_token)
+        except Exception:
+            print("Invalid Auth Token")
+            raise PermissionDenied("Invalid Auth Token")
+        
+        if not id_token or not decoded_token:
+            return None
+
+        # pull user form mongo
+        user = collection.find_one(
+            {'email': decoded_token.get('email')}, 
+            {'userActive': 1, 'role': 1}
+        )
+        
+        # check user status
+        if not user:
+            print("User Not Found")
+            raise PermissionDenied('User Not Found')
+        if user['userActive'] == False:
+            print("User Inactive")
+            raise PermissionDenied('User Inactive')
+
+        try:
+            uid = decoded_token.get("uid")
+        except Exception:
+            raise PermissionDenied("Firebase Server Error")
+
+        return (uid, user['role'])

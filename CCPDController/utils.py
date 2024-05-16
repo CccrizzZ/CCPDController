@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import os
 import json
 import pytz
@@ -7,6 +7,21 @@ from collections import Counter
 from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
 load_dotenv()
+import firebase_admin
+from firebase_admin import credentials
+import base64
+
+# grab base64 key fron .env
+base64_key = os.getenv('FIREBASE_KEY')
+service_account_key = base64.b64decode(base64_key)
+# print(str(service_account_key, encoding='utf-8'))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# initialize firebase app
+# cred = credentials.Certificate(os.path.join(BASE_DIR, 'ccpd-system-firebase-adminsdk-te9cz-87e79a992c.json'))
+cred = credentials.Certificate(json.loads(str(service_account_key, encoding='utf-8')))
+app = firebase_admin.initialize_app(cred)
+
 
 # construct mongoDB client
 # ssl hand shake error because ip not whitelisted
