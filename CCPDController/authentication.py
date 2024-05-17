@@ -89,15 +89,10 @@ class FirebaseAuthentication(BaseAuthentication):
         
         # check user status
         if not user:
-            print("User Not Found")
             raise PermissionDenied('User Not Found')
         if user['userActive'] == False:
-            print("User Inactive")
             raise PermissionDenied('User Inactive')
-
-        try:
-            uid = decoded_token.get("uid")
-        except Exception:
+        uid = decoded_token.get("uid")
+        if not uid:
             raise PermissionDenied("Firebase Server Error")
-
-        return (uid, user['role'])
+        return (user, user['role'])

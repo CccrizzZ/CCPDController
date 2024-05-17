@@ -1,3 +1,4 @@
+import email
 import jwt
 import uuid
 import pymongo
@@ -27,6 +28,7 @@ from CCPDController.utils import (
     sanitizeNumber,
     qa_inventory_db_name,
 )
+from firebase_admin import auth
 
 # pymongo
 db = get_db_client()
@@ -144,10 +146,14 @@ def createUser(request):
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     try:
-        user_collection.insert_one(newUser.__dict__)
+        res = user_collection.insert_one(newUser.__dict__)
     except:
         return Response('Unable to Create User', status.HTTP_400_BAD_REQUEST)
-    return Response('User Created', status.HTTP_201_CREATED)
+    if res:
+        auth.create_user(email=body['email'], password=body['password'])
+    else:
+        return Response('Unable to Create User', status.HTTP_400_BAD_REQUEST)
+    return Response('User Created', status.HTTP_200_OK)
 
 # delete user by id
 # id: string

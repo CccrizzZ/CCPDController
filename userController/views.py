@@ -1,4 +1,5 @@
 import time
+from urllib import response
 from django.http import HttpRequest
 import jwt
 from django.conf import settings
@@ -157,7 +158,7 @@ def getUserById(request: HttpRequest):
     # return as json object
     return Response(resUser.__dict__, status=status.HTTP_200_OK)
 
-# user registration
+# QA Personal registration, called by qa app
 # name: xxx
 # email: xxx
 # password: xxx
@@ -260,7 +261,6 @@ def logout(request: HttpRequest):
 def getIsWorkHour(request: HttpRequest):
     return Response(getIsWorkingHourEST(), status.HTTP_200_OK)
 
-
 @api_view(['GET'])
 @permission_classes([IsAdminPermission])
 def getAllActiveQAPersonal(request: HttpRequest):
@@ -272,7 +272,7 @@ def getAllActiveQAPersonal(request: HttpRequest):
 
 '''
 Firebase authentication
-added because google is phasing out 3rd-party cookies around q1 2025
+added because google is phasing out 3rd-party cookies around Q1 2025
 '''
 @api_view(['POST'])
 @throttle_classes([AppIDThrottle])
@@ -305,8 +305,32 @@ def getUserRBACInfo(request: HttpRequest):
     # pull basic info from database
     res = user_collection.find_one(
         {'email': email},
-        {'name': 1, 'role': '1'}
+        {'_id': 0, 'name': 1, 'role': 1}
     )
+    
     if not res:
-        return Response(f'No Such User {email}', status.HTTP_500_INTERNAL_SERVER_ERROR)    
+        return Response(f'No Such User {email}', status.HTTP_404_NOT_FOUND)
+    if res['role'] != 'QAPersonal':
+        return Response('User is Not QA Personal', status.HTTP_403_FORBIDDEN)
+    return Response(res, status.HTTP_200_OK)
+
+@api_view(['POST'])
+@permission_classes([IsAdminPermission | IsQAPermission])
+def getAdminRBACInfo(request: HttpRequest):
+    try:
+        body = decodeJSON(request.body)
+        email = sanitizeString(body['email'])
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    
+    # pull basic info from database
+    res = user_collection.find_one(
+        {'email': email},
+        {'_id': 0, 'name': 1, 'role': 1}
+    )
+    
+    if not res:
+        return Response(f'No Such Admin {email}', status.HTTP_404_NOT_FOUND)
+    if res['role'] != 'Admin' and res['role'] != 'Super Admin':
+        return Response('User is Not Admin', status.HTTP_403_FORBIDDEN)
     return Response(res, status.HTTP_200_OK)
