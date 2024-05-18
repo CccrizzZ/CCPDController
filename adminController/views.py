@@ -134,9 +134,10 @@ def createUser(request):
     try:
         body = decodeJSON(request.body)
         sanitizeUserInfoBody(body)
+        lowercase_user_email = str(body['email']).lower()
         newUser = User (
             name=body['name'],
-            email=body['email'],
+            email=lowercase_user_email,
             password=body['password'],
             role=body['role'],
             registrationDate=date.today().strftime(user_time_format),
@@ -150,7 +151,7 @@ def createUser(request):
     except:
         return Response('Unable to Create User', status.HTTP_400_BAD_REQUEST)
     if res:
-        auth.create_user(email=body['email'], password=body['password'])
+        auth.create_user(email=lowercase_user_email, password=body['password'])
     else:
         return Response('Unable to Create User', status.HTTP_400_BAD_REQUEST)
     return Response('User Created', status.HTTP_200_OK)

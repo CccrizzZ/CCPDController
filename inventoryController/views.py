@@ -199,7 +199,6 @@ def createInventory(request: HttpRequest):
     inv = qa_collection.find_one({'sku': body['sku']})
     if inv:
         return Response('SKU Already Existed', status.HTTP_409_CONFLICT)
-    
     try:
         # construct new inventory
         newInventory = InventoryItem(
@@ -216,7 +215,7 @@ def createInventory(request: HttpRequest):
             marketplace = body['marketplace']
         )
         # pymongo need dict or bson object
-        res = qa_collection.insert_one(newInventory.__dict__)
+        qa_collection.insert_one(newInventory.__dict__)
     except:
         return Response('Invalid Inventory Information', status.HTTP_400_BAD_REQUEST)
     return Response('Inventory Created', status.HTTP_200_OK)

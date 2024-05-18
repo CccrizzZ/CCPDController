@@ -102,8 +102,6 @@ def uploadImage(request: HttpRequest, ownerId, owner, sku):
         "ownerName": owner
     }
     
-    print(request.FILES)
-    
     if len(request.FILES) < 1:
         return Response('No images to upload', status.HTTP_200_OK)
     res = {}

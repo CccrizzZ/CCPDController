@@ -69,6 +69,8 @@ class FirebaseAuthentication(BaseAuthentication):
             print("No auth token provided")
             raise PermissionDenied("No auth token provided")
     
+        print(auth_header)
+    
         # decode token
         id_token = auth_header.split(" ").pop()
         decoded_token = None
@@ -83,8 +85,8 @@ class FirebaseAuthentication(BaseAuthentication):
 
         # pull user form mongo
         user = collection.find_one(
-            {'email': decoded_token.get('email')}, 
-            {'userActive': 1, 'role': 1}
+            {'email': decoded_token.get('email').lower()}, 
+            {'_id': 0, 'userActive': 1, 'role': 1}
         )
         
         # check user status

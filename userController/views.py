@@ -27,6 +27,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework import status
 from rest_framework.response import Response
 from userController.models import User
+from firebase_admin import auth
 
 # pymongo
 db = get_db_client()
@@ -165,25 +166,29 @@ def getUserById(request: HttpRequest):
 # inviationCode: xxx (pending)
 @csrf_protect
 @api_view(['POST'])
-@authentication_classes([AllowAny])
-@throttle_classes([AppIDThrottle])
+@permission_classes([AllowAny])
+@authentication_classes([])
+# @throttle_classes([AppIDThrottle])
 def registerUser(request: HttpRequest):
-    body = checkBody(decodeJSON(request.body))
-    try:
-        # sanitize
-        email = sanitizeEmail(body['email'])
-        userName = sanitizeName(body['name'])
-        password = sanitizePassword(body['password'])
-        invCode = sanitizeInvitationCode(body['code'])
+    # body = checkBody(decodeJSON(request.body))
+    # try:
+    body = decodeJSON(request.body)
+    email = sanitizeString(body['email'])   # email all store as lower case
+    userName = sanitizeString(body['name'])
+    password = sanitizeString(body['password'])
+    invCode = sanitizeString(body['code'])
 
-        # check if email exist in database
-        res = user_collection.find_one({ 'email': body['email'] })
-        if res:
-            return Response('Email already existed!', status.HTTP_409_CONFLICT)
-        if email == False or password == False or invCode == False:
-            return Response('Invalid Registration Info', status.HTTP_400_BAD_REQUEST)
-    except:
-        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    # check if email exist in database
+    res = user_collection.find_one({ 'email': body['email'] })
+    if res:
+        return Response('Email already existed!', status.HTTP_409_CONFLICT)
+    if email == False or password == False or invCode == False:
+        return Response('Invalid Registration Info', status.HTTP_400_BAD_REQUEST)
+    
+    # slam email to lower case
+    email = email.lower()
+    # except:
+    #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     # check if code is in db
     code = inv_collection.find_one({'code': invCode})
@@ -211,8 +216,11 @@ def registerUser(request: HttpRequest):
     res = user_collection.insert_one(newUser.__dict__)
 
     if res:
+        # removed the used invitation code
         inv_collection.delete_one({'code': invCode})
-        return Response('Registration Successful', status.HTTP_201_CREATED)
+        # create user in firebase auth system
+        auth.create_user(email=email, password=password)
+        return Response('Registration Successful', status.HTTP_200_OK)
     return Response('Registration Failed', status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 # QA personal change own password
@@ -274,39 +282,22 @@ def getAllActiveQAPersonal(request: HttpRequest):
 Firebase authentication
 added because google is phasing out 3rd-party cookies around Q1 2025
 '''
+# for QA personal firebase authentication
 @api_view(['POST'])
-@throttle_classes([AppIDThrottle])
-# @authentication_classes([FirebaseAuthentication])
-# @permission_classes([IsAdminPermission])
-def registerFirebase(request: HttpRequest):
-    try:
-        body = decodeJSON(request.body)
-        name = sanitizeString(body['name'])
-        email = sanitizeString(body['email'])
-        password = sanitizeString(body['password'])
-        role = sanitizeString(body['role'])
-    except:
-        return Response('', status.HTTP_400_BAD_REQUEST)
-    # email and password to firebase
-    
-    # email and name plus role to mongo db
-    
-    return Response('', status.HTTP_200_OK)
-
-@api_view(['POST'])
-@permission_classes([IsAdminPermission | IsQAPermission])
+@permission_classes([IsQAPermission])
 def getUserRBACInfo(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
-        email = sanitizeString(body['email'])
+        email = sanitizeString(body['email']).lower()
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     # pull basic info from database
     res = user_collection.find_one(
         {'email': email},
-        {'_id': 0, 'name': 1, 'role': 1}
+        {'name': 1, 'role': 1}
     )
+    res['_id'] = str(res['_id'])
     
     if not res:
         return Response(f'No Such User {email}', status.HTTP_404_NOT_FOUND)
@@ -314,12 +305,13 @@ def getUserRBACInfo(request: HttpRequest):
         return Response('User is Not QA Personal', status.HTTP_403_FORBIDDEN)
     return Response(res, status.HTTP_200_OK)
 
+# for admin and super admin personal firebase authentication
 @api_view(['POST'])
-@permission_classes([IsAdminPermission | IsQAPermission])
+@permission_classes([IsAdminPermission])
 def getAdminRBACInfo(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
-        email = sanitizeString(body['email'])
+        email = sanitizeString(body['email']).lower()
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     

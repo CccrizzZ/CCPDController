@@ -15,7 +15,6 @@ import base64
 # grab base64 key fron .env
 base64_key = os.getenv('FIREBASE_KEY')
 service_account_key = base64.b64decode(base64_key)
-# print(str(service_account_key, encoding='utf-8'))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # initialize firebase app

@@ -11,7 +11,6 @@ urlpatterns = [
     path("logout", views.logout, name="logout"),
     path('getIsWorkHour', views.getIsWorkHour, name="getIsWorkHour"),
     path('getAllActiveQAPersonal', views.getAllActiveQAPersonal, name="getAllActiveQAPersonal"),
-    path('registerFirebase', views.registerFirebase, name="registerFirebase"),
     path('getUserRBACInfo', views.getUserRBACInfo, name="getUserRBACInfo"),
     path('getAdminRBACInfo', views.getAdminRBACInfo, name="getAdminRBACInfo"),
 ]
