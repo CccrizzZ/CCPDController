@@ -69,15 +69,13 @@ class FirebaseAuthentication(BaseAuthentication):
             print("No auth token provided")
             raise PermissionDenied("No auth token provided")
     
-        print(auth_header)
-    
         # decode token
         id_token = auth_header.split(" ").pop()
         decoded_token = None
         try:
             decoded_token = auth.verify_id_token(id_token)
-        except Exception:
-            print("Invalid Auth Token")
+        except Exception as e:
+            print(e)
             raise PermissionDenied("Invalid Auth Token")
         
         if not id_token or not decoded_token:

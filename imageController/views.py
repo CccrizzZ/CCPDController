@@ -165,7 +165,7 @@ def uploadScrapedImage(request: HttpRequest):
         ownerName = sanitizeString(body['owner']['name'])
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
-    
+
     # try request the image
     try:
         res = requests.get(url)

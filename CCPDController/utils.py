@@ -97,9 +97,12 @@ def getNDayBefore(days_before, time_str) -> str:
     blob_time = blob_time - timedelta(days=days_before)
     return blob_time.strftime(blob_date_format)
 
-def getNDayBeforeToday(days_before) -> str:
+def getNDayBeforeToday(days_before, is_inv_format=False) -> str:
     blob_time = datetime.now() - timedelta(days=days_before)
-    return blob_time.strftime(iso_format)
+    if is_inv_format:
+        return blob_time.strftime(inv_iso_format)
+    else:
+        return blob_time.strftime(iso_format)
 
 # convert from string to iso time
 def convertToTime(time_str):

@@ -318,9 +318,12 @@ def getAdminRBACInfo(request: HttpRequest):
     # pull basic info from database
     res = user_collection.find_one(
         {'email': email},
-        {'_id': 0, 'name': 1, 'role': 1}
+        {'name': 1, 'role': 1}
     )
     
+    # add id in user info
+    res['id'] = str(res['_id'])
+    del res['_id']
     if not res:
         return Response(f'No Such Admin {email}', status.HTTP_404_NOT_FOUND)
     if res['role'] != 'Admin' and res['role'] != 'Super Admin':

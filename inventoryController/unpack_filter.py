@@ -75,6 +75,9 @@ def unpackQARecordFilter(query_filter, fil):
         sanitizeString(query_filter['conditionFilter'])
         fil['$and'].append({'itemCondition': query_filter['conditionFilter']})
     
+    if 'showRecordedOnly' in query_filter and query_filter['showRecordedOnly'] == True:
+        fil['$and'].append({'recorded': True})
+    
     unpackMarketPlaceFilter(query_filter, fil)
     unpackPlatformFilter(query_filter, fil)
     unpackTimeRange(query_filter, fil)
@@ -94,8 +97,6 @@ def unpackQARecordFilter(query_filter, fil):
     # remove $and if no filter applied
     if fil['$and'] == []:
         del fil['$and']
-    
-    print(fil)
     return fil
 
 # unpack instock inventory filter object passed in by frontend

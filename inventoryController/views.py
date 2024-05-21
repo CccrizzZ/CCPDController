@@ -584,7 +584,15 @@ def getInstockByPage(request: HttpRequest):
         return Response([], status.HTTP_200_OK)
 
     # make and return chart data
-    res = instock_collection.find({'time': {'$gte': getNDayBeforeToday(10)}}, {'_id': 0})
+    res = instock_collection.find(
+        {
+            'time': {
+                '$gte': getNDayBeforeToday(10, True)
+            }
+        }, 
+        {'_id': 0}
+    )
+    
     chart_arr = []
     for item in res:
         chart_arr.append(item)
@@ -671,6 +679,17 @@ def deleteInstockBySku(request: HttpRequest):
         instock_collection.delete_one({ 'sku': sku })
     except:
         return Response('Cannot Delete Instock Inventory', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    # set qa record record recorded to false
+    
+    qa_collection.update_one(
+        {'sku': sku},
+        {
+            '$set': {
+                'recorded': False
+            }
+        }
+    )
+    
     return Response('Instock Inventory Deleted', status.HTTP_200_OK)
 
 # get all in-stock shelf location
@@ -1614,7 +1633,6 @@ def generateDescriptionBySku(request: HttpRequest):
         comment = sanitizeString(body['comment'])
         title = sanitizeString(body['title'])
         titleTemplate = sanitizeString(body['titleTemplate'])
-        print(titleTemplate)
         descTemplate = sanitizeString(body['descTemplate'])
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
