@@ -1,5 +1,6 @@
 import io
 import os
+import pprint
 from django.http import HttpRequest
 import requests
 from scrapy.http import HtmlResponse
@@ -350,6 +351,7 @@ def deleteInventoryBySku(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
         sku = sanitizeSku(body['sku'])
+        time = sanitizeString(body['time'])
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     if not sku:
@@ -364,19 +366,16 @@ def deleteInventoryBySku(request: HttpRequest):
     timeCreated = convertToTime(res['time'])
     createdTimestamp = datetime.timestamp(timeCreated)
     todayTimestamp = datetime.timestamp(datetime.now())
-    
+    print(timeCreated)
     two_days = 175000
-    canDel = (todayTimestamp- createdTimestamp) < two_days
-    print(todayTimestamp)
-    print(createdTimestamp)
-    print(todayTimestamp - createdTimestamp)
-    print(two_days)
-    print(canDel)
+    delta = todayTimestamp - createdTimestamp
+    canDel = delta < two_days  # returning False
+    print(canDel) 
     
     
     # perform deletion or throw error
     if canDel:
-        qa_collection.delete_one({'sku': sku})
+        qa_collection.delete_one({'sku': sku, 'time': time})
         return Response('Inventory Deleted', status.HTTP_200_OK)
     return Response('Cannot Delete Inventory After 24H, Please Contact Admin', status.HTTP_403_FORBIDDEN)
 
@@ -623,7 +622,7 @@ def getInstockBySku(request: HttpRequest):
 def updateInstockBySku(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
-        sku = sanitizeSku(body['sku'])
+        sku = sanitizeNumber(body['sku'])
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
 
@@ -808,7 +807,7 @@ def getAuctionCsv(request: HttpRequest):
             if 'msrp' in item:
                 msrp = float(sanitizeNumber(item['msrp']))
             else:
-                msrp = ''
+                msrp = 0
             if 'description' in item:
                 if msrp != '' and msrp < 80:
                     desc = desc_under_80 + ' '+ sanitizeString(item['description'])
@@ -834,13 +833,13 @@ def getAuctionCsv(request: HttpRequest):
                 'Lead': lead,
                 'Description': desc,
                 'MSRP:$': 'MSRP:$',
-                'Price': msrp,
+                'Price': msrp if msrp > 0 else 'NA',
                 'Location': sanitizeString(item['shelfLocation']),
                 'item': sanitizeNumber(item['sku']),
                 'vendor': vendor_name,
                 'start bid': startBid,
                 'reserve': reserve,
-                'Est': msrp,
+                'Est': msrp if msrp > 0 else 'NA',
             }
             topRow.append(row)
     
@@ -853,7 +852,7 @@ def getAuctionCsv(request: HttpRequest):
         if 'msrp' in item:
             msrp = float(sanitizeNumber(item['msrp']))
         else:
-            msrp = ''
+            msrp = 0
             
         # description adjusted according to msrp
         if 'description' in item:
@@ -882,13 +881,13 @@ def getAuctionCsv(request: HttpRequest):
             'Lead': lead,
             'Description': desc.strip(),
             'MSRP:$': 'MSRP:$',
-            'Price': msrp,
+            'Price': msrp if msrp > 0 else 'NA',
             'Location': sanitizeString(item['shelfLocation']),
             'item': sku,
             'vendor': vendor_name,
             'start bid': default_start_bid,
             'reserve': reserve,
-            'Est': msrp,
+            'Est': msrp if msrp > 0 else 'NA',
         }
         itemsArrData.append(row)
         
@@ -1097,6 +1096,18 @@ def createAuctionRecord(request: HttpRequest):
         auction = auction_collection.insert_one({**auctionRecord.__dict__, 'itemsArr': merged_list})
         if not auction:
             return Response('Cannot Push To DB', status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # sort by msrp
+        auction_collection.update_one(
+            { 'lot': auctionRecord.lot },
+            {
+                '$push': {
+                    'itemsArr': {
+                        '$each': [],
+                        '$sort': { 'msrp': -1 }
+                    }
+                }
+            }
+        )
     except: 
         return Response('Cannot Push To DB', status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response(f'Auction Record {lot} Created', status.HTTP_200_OK)
@@ -1381,9 +1392,13 @@ def deleteItemInAuction(request: HttpRequest):
     
     deleted = auction_collection.update_one(
         { 'lot': auctionLot }, 
-        { 
-            '$pull': { 'itemsArr': { 'lot': itemLot } }, 
-            '$inc': { 'totalItems': -1 } 
+        {
+            '$pull': {
+                'itemsArr': { 'lot': itemLot }
+            }, 
+            '$inc': { 
+                'totalItems': -1
+            }
         }
     )
     if not deleted:
@@ -1417,6 +1432,19 @@ def updateItemInAuction(request: HttpRequest):
         },
         array_filters=[{ "elem.lot": itemLot }]
     )
+    
+    # sort by msrp
+    auction_collection.update_one(
+        { 'lot': auctionLot },
+        {
+            '$push': {
+                'itemsArr': {
+                    '$each': [],
+                    '$sort': { 'msrp': -1 }
+                }
+            }
+        }
+    )
     if not updated:
         return Response(f'Cannot Update Item {itemLot} in Auction {auctionLot}', status.HTTP_200_OK)
     return Response(f'Updated Item {itemLot} in Auction {auctionLot}')
@@ -1425,50 +1453,83 @@ def updateItemInAuction(request: HttpRequest):
 @permission_classes([IsAdminPermission])
 def addSelectionToAuction(request: HttpRequest):
     fil = {}
-    try:
-        body = decodeJSON(request.body)
-        auctionLot = sanitizeNumber(body['auctionLot'])
-        duplicate = sanitizeNumber(body['duplicate'])
-        unpackInstockFilter(body['filter'], body[fil])
-    except:
-        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    # try:
+    body = decodeJSON(request.body)
+    auctionLot = sanitizeNumber(body['auctionLot'])
+    duplicate = sanitizeNumber(body['duplicate'])
+    unpackInstockFilter(body['filter'], fil)
+    # except:
+    #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     # check if auction record exist
-    auction = auction_collection.find({'lot': auctionLot}, {'_id': 0, 'totalItems': 1, 'itemLotStart': 1})
+    auction = auction_collection.find_one({'lot': auctionLot}, {'_id': 0, 'totalItems': 1, 'itemLotStart': 1, 'itemsArr': 1})
     if not auction:
         return Response(f'Auction {auctionLot} not Found', status.HTTP_404_NOT_FOUND)
+    currentItemsArr = auction['itemsArr'] if 'itemsArr' in auction else []    
     
-    # get all inventory according to filter
+    # get all selected items
     itemsArr = []
     instock = instock_collection.find(
         fil, 
-        { '_id': 0, 'sku': 1, 'lead': 1, 'msrp': 1, 'description': 1, 'shelfLocation': 1, 'condition': 1, 'quantityInstock': 1 }
+        { 
+            '_id': 0, 
+            'sku': 1, 
+            'lead': 1, 
+            'msrp': 1, 
+            'description': 1, 
+            'shelfLocation': 1, 
+            'condition': 1, 
+            'quantityInstock': 1 
+        }
     ).sort({ 'msrp': -1 })
     
-    # unpack filter
+    # populate instock array for selected items
     itemsArr = processInstock(itemsArr, instock, duplicate)
+    # count howmany items selected
     count = len(itemsArr)
     
-    # calculate start
-    itemLotStart = auction['itemLotStart'] + auction['totalItems']
+    # itemLotStart = auction['itemLotStart'] + auction['totalItems']
+    # get the biggest lot
+    itemLotStart = auction['itemsArr'][-1]['lot'] + 1 if 'itemsArr' in auction and len(auction['itemsArr']) > 0 else auction['itemLotStart']
     # append item lot number on to the object
-    itemLotNumbersArr = []
-    for x in range(itemLotStart, itemLotStart + count + 1):
-        itemLotNumbersArr.append({ 'lot': x })
-    merged_list = [{ **d1, **d2 } for d1, d2 in zip(itemLotNumbersArr, count)]
-    print(merged_list)
-    print(len(merged_list))
-
-    # push array of object into auction record
+    indexArr = []
+    for index in range(itemLotStart + 1, itemLotStart + count + 1):
+        indexArr.append({ 'lot': index })
+    newList = [{ **d1, **d2 } for d1, d2 in zip(indexArr, itemsArr)]
+    
+    # insert new array into current item array
+    # increment the total item field
     update = auction_collection.update_one(
         { 'lot': auctionLot }, 
-        {
-            '$push': {
-                'itemArr': merged_list
-            }
-        }
+        [
+            {
+                '$set': {
+                    'itemsArr': {
+                        '$concatArrays': [
+                            {'$ifNull': ['$itemsArr', []]},
+                            newList
+                        ],
+                    },
+                    'totalItems': len(newList) + len(currentItemsArr)
+                },
+            },
+        ]
     )
     
+    # sort the array by msrp
+    auction_collection.update_one(
+        { 'lot': auctionLot },
+        {
+           '$push': {
+               'itemsArr': {
+                    '$each': [],
+                    '$sort': { 'msrp': -1 }
+               }
+           }
+        }
+    )
+    if not update:
+        return Response('Cannot Add Item to Auction', status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response(f'Selection Added to Auction {auctionLot}', status.HTTP_200_OK)
 
 @api_view(['GET'])

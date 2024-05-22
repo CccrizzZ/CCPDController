@@ -161,6 +161,4 @@ def unpackInstockFilter(query_filter, fil):
     # $and cannot be empty
     if fil['$and'] == []:
         del fil['$and']
-    
-    print(fil)
     return fil
