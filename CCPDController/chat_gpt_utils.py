@@ -25,7 +25,7 @@ def generate_title(title, template) -> str:
         model="gpt-3.5-turbo",
         max_tokens=40
     )
-    return res.choices[0].message.content.strip()
+    return special_characters_convert_l(res.choices[0].message.content.strip())
 
 # full description
 def generate_description(condition, comment, description, template) -> str:
@@ -45,7 +45,13 @@ def generate_description(condition, comment, description, template) -> str:
         max_tokens=100,
         temperature=0.4
     )
-    return res.choices[0].message.content.strip()
+    
+    desc = res.choices[0].message.content.strip()
+    desc = desc.replace("SAME", "")
+    desc = desc.replace("SCANNED", "")
+    desc = desc.replace("ALL MAIN PARTS IN", "")
+    desc = special_characters_convert_d(desc)
+    return desc
 
 def special_characters_convert_d(description):
         try:
@@ -74,7 +80,7 @@ def special_characters_convert_d(description):
         description = description.replace("×","x")
         description = description.replace("–","-")
         description = description.replace("℉"," Fahrenheit scale ")
-        description = description.replace(" "," ")
+        # description = description.replace(" "," ")
         description = description.replace("Φ"," ")
         description = description.replace("’","'")
         description = description.replace('Additional Condition" - "',"")

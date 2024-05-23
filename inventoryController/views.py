@@ -365,13 +365,13 @@ def deleteInventoryBySku(request: HttpRequest):
     # check if the created time is within 2 days (175000 seconds)
     timeCreated = convertToTime(res['time'])
     createdTimestamp = datetime.timestamp(timeCreated)
+    # print(f'Created: {createdTimestamp}')
     todayTimestamp = datetime.timestamp(datetime.now())
-    print(timeCreated)
-    two_days = 175000
+    # print(f'Today: {todayTimestamp}')
+    two_days = 86400 * 2
     delta = todayTimestamp - createdTimestamp
-    canDel = delta < two_days  # returning False
-    print(canDel) 
-    
+    canDel = delta < two_days
+    # print(f'{delta} < {two_days}') 
     
     # perform deletion or throw error
     if canDel:
@@ -1724,7 +1724,7 @@ def scrapeInfoBySkuAmazon(request: HttpRequest):
     link = extract_urls(target['link'])
     if 'https' not in link and '.ca' not in link and '.com' not in link:
         return Response('Invalid URL', status.HTTP_400_BAD_REQUEST)
-    if 'a.co' not in link and 'amazon' not in link and 'amzn' not in link:
+    elif 'a.co' not in link and 'amazon' not in link and 'amzn' not in link:
         return Response('Invalid URL, Not Amazon URL', status.HTTP_400_BAD_REQUEST)
     
     # generate header with random user agent

@@ -74,10 +74,15 @@ def getUrlsBySku(request: HttpRequest):
     arr = []
     for blob in blob_list:
         blob_client = product_image_container_client.get_blob_client(blob.name)
-        last_modified_time = blob_client.get_blob_properties().last_modified.timestamp()
-        # arr.append(blob_client.url)
-        arr.append(f"{blob_client.url}?updated={last_modified_time}")
-        
+        try:
+            # when refreshing after deleting an image
+            # this line throws ErrorCode:BlobNotFound
+            last_modified_time = blob_client.get_blob_properties().last_modified.timestamp()
+            arr.append(f"{blob_client.url}?updated={last_modified_time}")
+        except: 
+            if len(arr) > 0:
+                return Response(arr, status.HTTP_200_OK)
+
     if len(arr) < 1:
         return Response('No images found for sku', status.HTTP_404_NOT_FOUND)
     return Response(arr, status.HTTP_200_OK)
@@ -143,7 +148,8 @@ def deleteImageByName(request: HttpRequest):
     name = sanitizeString(body['name'])
     
     # azure automatically unquote all % in url
-    imageName = parse.unquote(f'{str(sku)}/{name}')
+    imageName = parse.unquote(f'{str(sku)}/{name.split('?')[0]}')
+    print(imageName)
     try:
         product_image_container_client.delete_blob(imageName)
     except:

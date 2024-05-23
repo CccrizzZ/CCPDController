@@ -1,5 +1,4 @@
 import time
-from urllib import response
 from django.http import HttpRequest
 import jwt
 from django.conf import settings
@@ -14,9 +13,6 @@ from CCPDController.utils import (
     getIsWorkingHourEST, 
     sanitizeEmail, 
     sanitizePassword, 
-    checkBody, 
-    sanitizeInvitationCode, 
-    sanitizeName,
     sanitizeString, 
     user_time_format
 )
@@ -226,29 +222,50 @@ def registerUser(request: HttpRequest):
 # QA personal change own password
 # _id: xxx
 # newPassword: xxx
-@api_view(['PUT'])
+@api_view(['POST'])
 @permission_classes([IsAdminPermission | IsQAPermission])
-def changeOwnPassword(request: HttpRequest):
+def updateUserInfo(request: HttpRequest):
     try:
-        # convert to BSON
         body = decodeJSON(request.body)
-        uid = ObjectId(body['_id'])
-        password = sanitizePassword(body['newPassword'])
+        # original info
+        uid = sanitizeString(body['id'])
+        name = sanitizeString(body['name'])
+        email = sanitizeString(body['email'])
+        firebase_id = sanitizeString(body['firebase_id'])
+        # new info
+        newInfo = body['newInfo']
+        newName = sanitizeString(newInfo['name'])
+        newEmail = sanitizeString(newInfo['email'])
+        newPassword = sanitizeString(newInfo['password'])
     except:
         return Response('User ID or Password Invalid:', status.HTTP_401_UNAUTHORIZED)
+    
+    # construct set object
+    setObj = { 'password': newPassword }
+    if newName != name:
+        setObj['name'] = newName
+    if newEmail != email:
+        setObj['email'] = newEmail
+
+
+    print(setObj)
+
     
     # query for uid and role to be QA personal and update
     res = user_collection.update_one(
         {
             '_id': uid,
-            'role': 'QAPersonal'
+            'name': name,
+            'email': email
         },
-        { '$set': {'password': password} }
+        { '$set': setObj }
     )
     
+    auth.update_user()
+    
     if res:
-        return Response('Password Updated', status.HTTP_200_OK)
-    return Response('Cannot Update Password', status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response('User Info Updated', status.HTTP_200_OK)
+    return Response('Cannot Update User Info', status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @csrf_protect
 @api_view(['POST'])
