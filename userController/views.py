@@ -1,4 +1,5 @@
 import time
+from urllib import response
 from django.http import HttpRequest
 import jwt
 from django.conf import settings
@@ -230,42 +231,44 @@ def updateUserInfo(request: HttpRequest):
         # original info
         uid = sanitizeString(body['id'])
         name = sanitizeString(body['name'])
-        email = sanitizeString(body['email'])
+        email = sanitizeString(body['email']).lower()
         firebase_id = sanitizeString(body['firebase_id'])
         # new info
         newInfo = body['newInfo']
         newName = sanitizeString(newInfo['name'])
         newEmail = sanitizeString(newInfo['email'])
         newPassword = sanitizeString(newInfo['password'])
+        if len(newPassword) < 6 and len(newPassword) != 0:
+            return Response('Password have to be at least 6 charactors', status.HTTP_400_BAD_REQUEST)
     except:
-        return Response('User ID or Password Invalid:', status.HTTP_401_UNAUTHORIZED)
+        return Response('User Info Invalid:', status.HTTP_400_BAD_REQUEST)
     
     # construct set object
-    setObj = { 'password': newPassword }
+    setObj = { }
+    if len(newPassword) >= 6:
+        setObj['password'] = newPassword
+        auth.update_user(firebase_id, password=newPassword)
     if newName != name:
         setObj['name'] = newName
     if newEmail != email:
         setObj['email'] = newEmail
-
-
-    print(setObj)
-
+        auth.update_user(firebase_id, email=newEmail)
     
+    # try:
     # query for uid and role to be QA personal and update
     res = user_collection.update_one(
         {
-            '_id': uid,
+            '_id': ObjectId(uid),
             'name': name,
             'email': email
         },
         { '$set': setObj }
     )
     
-    auth.update_user()
-    
-    if res:
-        return Response('User Info Updated', status.HTTP_200_OK)
-    return Response('Cannot Update User Info', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    # update user in firebase
+    # except:
+    #     return Response('Cannot Update User Info', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return Response('User Info Updated', status.HTTP_200_OK)
 
 @csrf_protect
 @api_view(['POST'])

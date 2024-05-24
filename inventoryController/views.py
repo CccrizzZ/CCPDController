@@ -41,6 +41,7 @@ import pymongo
 import pandas as pd
 from bs4 import BeautifulSoup
 import random
+from urllib import parse
 
 # append this in front of description for item msrp lte 80$
 desc_under_80 = 'READ NEW TERMS OF USE BEFORE YOU BID!'
@@ -343,7 +344,7 @@ def updateInventoryBySku(request: HttpRequest, sku: str):
     return Response('Update Success', status.HTTP_200_OK)
 
 # delete inventory by sku
-# QA personal can only delete record created within 24h
+# QA personal can only delete records within certain time after creating them
 # sku: string
 @api_view(['DELETE'])
 @permission_classes([IsQAPermission])
@@ -371,11 +372,23 @@ def deleteInventoryBySku(request: HttpRequest):
     two_days = 86400 * 2
     delta = todayTimestamp - createdTimestamp
     canDel = delta < two_days
-    # print(f'{delta} < {two_days}') 
-    
+
     # perform deletion or throw error
     if canDel:
+        # delete record from mongo
         qa_collection.delete_one({'sku': sku, 'time': time})
+        
+        # list blob by sku
+        tag_filter = "sku = '" + str(sku) + "'"
+        blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=tag_filter)
+
+        # delete each blob 
+        try:
+            for blob in blob_list:
+                blob_name = blob.name
+                product_image_container_client.delete_blob(blob_name)
+        except:
+            return Response('Failed to Delete', status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response('Inventory Deleted', status.HTTP_200_OK)
     return Response('Cannot Delete Inventory After 24H, Please Contact Admin', status.HTTP_403_FORBIDDEN)
 

@@ -53,8 +53,6 @@ def getUrlsByOwner(request: HttpRequest):
         blob_client = product_image_container_client.get_blob_client(blob.name)
         arr.append(blob_client.url)
 
-    if len(arr) < 1:
-        return Response('No Images Found for Owner', status.HTTP_200_OK)
     return Response(arr, status.HTTP_200_OK)
 
 # sku: str
@@ -149,7 +147,6 @@ def deleteImageByName(request: HttpRequest):
     
     # azure automatically unquote all % in url
     imageName = parse.unquote(f'{str(sku)}/{name.split('?')[0]}')
-    print(imageName)
     try:
         product_image_container_client.delete_blob(imageName)
     except:
