@@ -446,8 +446,13 @@ def getShelfSheetByUser(request: HttpRequest):
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
-    # get from db
-    res = qa_collection.find({'ownerName': owner, 'time': getTodayTimeRangeFil()}, {'_id': 0, 'sku': 1, 'shelfLocation': 1, 'amount': 1, 'ownerName': 1, 'time': 1})
+    # res = qa_collection.find({'ownerName': owner, 'time': getTodayTimeRangeFil()}, {'_id': 0, 'sku': 1, 'shelfLocation': 1, 'amount': 1, 'ownerName': 1, 'time': 1})
+    
+    # get todays inventory, return type is QARecord
+    res = qa_collection.find(
+        {'ownerName': owner, 'time': getTodayTimeRangeFil()}, 
+        {'_id': 0}
+    )
     if not res:
         return Response('No Record Found', status.HTTP_200_OK)
     arr = []

@@ -135,7 +135,8 @@ def uploadImage(request: HttpRequest, ownerId, owner, sku):
             if not res: 
                 return Response('Failed to upload', status.HTTP_500_INTERNAL_SERVER_ERROR)
         except ResourceExistsError:
-            return Response(imageName + 'Already Exist!', status.HTTP_409_CONFLICT)
+            continue
+            # return Response(imageName + 'Already Exist!', status.HTTP_409_CONFLICT)
     return Response('Upload success', status.HTTP_200_OK)
 
 @api_view(['DELETE'])
