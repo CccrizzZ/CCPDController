@@ -1,13 +1,15 @@
 import io
+from operator import le
 import os
 import pprint
 from django.http import HttpRequest
 import requests
+import scrapy
 from scrapy.http import HtmlResponse
 from datetime import datetime, timedelta
 import xlrd
 from inventoryController.models import AuctionItem, AuctionRecord, InstockInventory, InventoryItem
-from CCPDController.scrape_utils import extract_urls, getCurrency, getImageUrl, getMsrp, getTitle
+from CCPDController.scrape_utils import extract_urls, getCurrency, getImageUrl, getMsrp, getTitle, webDriverGet
 from CCPDController.utils import (
     convertToAmountPerDayData, decodeJSON, 
     get_db_client, getBlobTimeString, 
@@ -730,8 +732,8 @@ def createInstockInventory(request: HttpRequest):
         if res:
             return Response(f'Inventory {sku} Already Instock', status.HTTP_409_CONFLICT)
         msrp = 0
-        if 'mrsp' in body:
-            msrp = sanitizeNumber(body['msrp'])
+        if 'msrp' in body:
+            msrp = sanitizeNumber(int(body['msrp']))
         shelfLocation = sanitizeString(body['shelfLocation'])
         condition = sanitizeString(body['condition'])
         platform = sanitizeString(body['platform'])
@@ -1109,11 +1111,13 @@ def createAuctionRecord(request: HttpRequest):
         maxSku=maxSku,
         itemLotStart=itemLotStart,
     )
+    
+    # create the auction record
     try: 
-        # create auction record in mongo db
         auction = auction_collection.insert_one({**auctionRecord.__dict__, 'itemsArr': merged_list})
         if not auction:
             return Response('Cannot Push To DB', status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
         # sort by msrp
         auction_collection.update_one(
             { 'lot': auctionRecord.lot },
@@ -1760,13 +1764,23 @@ def scrapeInfoBySkuAmazon(request: HttpRequest):
         'currency':''
     }
     
+    # webdriver
+    # res = webDriverGet(link)
+    
+    # print(res)    
+    
     # request the raw html from Amazon
     rawHTML = requests.get(url=link, headers=headers).text
     response = HtmlResponse(url=link, body=rawHTML, encoding='utf-8')
-    try:
-        payload['title'] = getTitle(response)
-    except:
-        return Response('Failed to Get Title', status.HTTP_500_INTERNAL_SERVER_ERROR)
+     
+        
+    if 'Sorry, we just need to make sure you\'re not a robot' in str(response.body) or 'To discuss automated access to Amazon data please contact' in str(response.body):
+        raise Exception('Blocked by Amazon bot detection')
+    
+    # try:
+    payload['title'] = getTitle(response)
+    # except:
+    #     return Response('Failed to Get Title', status.HTTP_500_INTERNAL_SERVER_ERROR)
     try:
         payload['msrp'] = getMsrp(response)
     except:

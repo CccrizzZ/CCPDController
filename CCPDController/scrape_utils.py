@@ -4,8 +4,13 @@ import random
 
 from bs4 import BeautifulSoup
 
+from CCPDController.web_driver import create_driver
+
 # Amazon scrapping utils 
 # works for both Amazon CA nad US
+
+# parent of cols
+parentId = 'ppd'
 
 # center col div id and class name
 centerColId = 'centerCol'
@@ -54,8 +59,14 @@ def getNavBelt(response):
 # takes scrapy HtmlResponse generated from rawHTML
 # return array of center col's children tags
 def getCenterCol(response):
-    # return error if no center col found
     children = response.xpath(f'//div[@id="{centerColId}" or @class="{centerColClass}"]/child::*')
+    
+    # if no children, retarget parent
+    if len(children) < 1:
+        parent = response.xpath(f'//div[@id="{parentId}"]/child::*')
+        children = parent.xpath(f'//div[@id="{centerColId}" or @class="{centerColClass}"]/child::*')
+            
+    # return error if no center col found
     if len(children) < 1:
         raise Exception('No center column found')
     return children
@@ -178,3 +189,16 @@ def getCurrency(response) -> str:
     if gb_exist > 0:
         return 'GBP'
     return 'No currency info'
+
+
+def webDriverGet(url: str) -> str:
+    # Use the WebDriver to navigate to a webpage
+    driver = create_driver()
+    driver.get(url)
+    
+    # Get and print the title of the page
+    print(f"Page title is: {driver.title}")
+    
+    # Always remember to quit the driver
+    driver.quit()
+    return ''
