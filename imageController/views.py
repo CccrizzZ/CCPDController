@@ -200,9 +200,9 @@ def uploadScrapedImage(request: HttpRequest):
     
     # if body have image name set it to that
     if 'imageName' in body:
-        imageName = f"{sku}/{sku}_{body['imageName']}.{extension}"
+        imageName = f"__{sku}/{sku}_{body['imageName']}.{extension}"
     else:
-        imageName = f"{sku}/{sku}_{sku}.{extension}"
+        imageName = f"__{sku}/{sku}_{sku}.{extension}"
     try:
         res = product_image_container_client.upload_blob(imageName, compressed_image_stream.getvalue(), tags=inventory_tags)
     except ResourceExistsError:

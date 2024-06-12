@@ -733,7 +733,7 @@ def createInstockInventory(request: HttpRequest):
             return Response(f'Inventory {sku} Already Instock', status.HTTP_409_CONFLICT)
         msrp = 0
         if 'msrp' in body:
-            msrp = sanitizeNumber(int(body['msrp']))
+            msrp = sanitizeNumber(float(body['msrp']))
         shelfLocation = sanitizeString(body['shelfLocation'])
         condition = sanitizeString(body['condition'])
         platform = sanitizeString(body['platform'])
@@ -1079,11 +1079,12 @@ def createAuctionRecord(request: HttpRequest):
         unpackInstockFilter(body['filter'], fil)
     
     # construct itemsArr inside auction record
+    # sort by mrsp
     itemsArr = []
     instock = instock_collection.find(
         fil, 
         { '_id': 0, 'sku': 1, 'lead': 1, 'msrp': 1, 'description': 1, 'shelfLocation': 1, 'condition': 1, 'quantityInstock': 1 }
-    ).sort('mrsp', -1)
+    ).sort('msrp', -1)
     
     # loading mongo result into itemsArr with or without duplicating items
     itemsArr = processInstock(itemsArr, instock, duplicate)
@@ -1688,7 +1689,6 @@ def auditRemainingRecord(request: HttpRequest):
             else:
                 return Response(f'Cannot deduct {soldItem['sku']} from database', status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    print(deducted)
     # append info to remaining record
     res = remaining_collection.update_one(
         { 'lot': lot }, 
@@ -1877,7 +1877,6 @@ def sendInstockCSV(request: HttpRequest):
             # targeted: 2024-01-03T05:00:00.000
             time = datetime.strptime(str(data['time'][index]), "%Y-%m-%d %H:%M:%S").isoformat()
             data.loc[index, 'time'] = time.replace('T', ' ')
-            print(str(data.loc[index, 'time']))
         
         # check url is http
         if 'http' not in str(data['url'][index]) or len(str(data['url'][index])) < 15 or '<' in str(data['url'][index]):
@@ -1907,7 +1906,7 @@ def sendInstockCSV(request: HttpRequest):
             data.loc[index, 'msrp'] = ''
         
         sku = int(data.loc[index, 'sku'])
-        print(sku)
+        
         # update the instock quantity if sku found in database
         exist = instock_collection.find_one({'sku': sku})
         if exist:    
