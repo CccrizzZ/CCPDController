@@ -286,7 +286,8 @@ def convertToAmountPerDayData(arr):
         out.append({'date': date, 'Recorded Inventory': count})
     return out
 
-def getTodayTimeRangeFil(deltaDays=0):
+# get today's time filter, for mongodb query
+def getTimeRangeFil(deltaDays=0):
     time = datetime.now() - timedelta(days=deltaDays)
     return {
         '$gte': time.replace(hour=0, minute=0, second=0, microsecond=0).strftime(full_iso_format),

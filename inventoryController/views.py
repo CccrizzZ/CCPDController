@@ -8,13 +8,14 @@ import scrapy
 from scrapy.http import HtmlResponse
 from datetime import datetime, timedelta
 import xlrd
+from CCPDController.proxy_request import request_with_proxy
 from inventoryController.models import AuctionItem, AuctionRecord, InstockInventory, InventoryItem
-from CCPDController.scrape_utils import extract_urls, getCurrency, getImageUrl, getMsrp, getTitle, webDriverGet
+from CCPDController.scrape_utils import extract_urls, getCurrency, getImageUrl, getMsrp, getTitle
 from CCPDController.utils import (
     convertToAmountPerDayData, decodeJSON, 
     get_db_client, getBlobTimeString, 
     getIsoFormatInv, 
-    getNDayBeforeToday, getTodayTimeRangeFil, 
+    getNDayBeforeToday, getTimeRangeFil, 
     populateSetData, sanitizeBoolean, 
     sanitizeNumber, 
     sanitizeSku, 
@@ -43,7 +44,6 @@ import pymongo
 import pandas as pd
 from bs4 import BeautifulSoup
 import random
-from urllib import parse
 
 # append this in front of description for item msrp lte 80$
 desc_under_80 = 'READ NEW TERMS OF USE BEFORE YOU BID!'
@@ -429,7 +429,7 @@ def getDailyQARecordData(request: HttpRequest):
         days = 7
         for x in range(days):
             counts.append(qa_collection.count_documents({
-                'time': getTodayTimeRangeFil(x), 
+                'time': getTimeRangeFil(x), 
                 'ownerName': owner
             }))
             times = datetime.now() - timedelta(days=x)
@@ -448,11 +448,11 @@ def getShelfSheetByUser(request: HttpRequest):
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
-    # res = qa_collection.find({'ownerName': owner, 'time': getTodayTimeRangeFil()}, {'_id': 0, 'sku': 1, 'shelfLocation': 1, 'amount': 1, 'ownerName': 1, 'time': 1})
+    # res = qa_collection.find({'ownerName': owner, 'time': getTimeRangeFil()}, {'_id': 0, 'sku': 1, 'shelfLocation': 1, 'amount': 1, 'ownerName': 1, 'time': 1})
     
     # get todays inventory, return type is QARecord
     res = qa_collection.find(
-        {'ownerName': owner, 'time': getTodayTimeRangeFil()}, 
+        {'ownerName': owner, 'time': getTimeRangeFil()}, 
         {'_id': 0}
     )
     if not res:
@@ -463,25 +463,39 @@ def getShelfSheetByUser(request: HttpRequest):
     return Response(arr, status.HTTP_200_OK)
 
 # get end of the day shelf location sheet for all records submitted today
-@api_view(['GET'])
+@api_view(['POST'])
 @permission_classes([IsAdminPermission])
 def getAllShelfSheet(request: HttpRequest):
-    con = { 'time': getTodayTimeRangeFil() }
-    res = qa_collection.find(con, {'_id': 0, 'sku': 1, 'shelfLocation': 1, 'amount': 1, 'ownerName': 1, 'time': 1}).sort('shelfLocation', pymongo.ASCENDING)
+    try:
+        body = decodeJSON(request.body)
+        daysAgo = sanitizeNumber(body["daysAgo"])
+    except:
+        return Response("Invalid Body", status.HTTP_400_BAD_REQUEST)
+    
+    # construct filter
+    fil = { 'time': getTimeRangeFil(daysAgo) }
+    # look for all items entries from that day
+    res = qa_collection.find(
+        fil, 
+        {'_id': 0, 'sku': 1, 'shelfLocation': 1, 'amount': 1, 'ownerName': 1, 'time': 1}
+    ).sort('shelfLocation', pymongo.ASCENDING)
     if not res:
-        return Response('No Record Found', status.HTTP_204_NO_CONTENT)
+        return Response('No Record Found', status.HTTP_404_NOT_FOUND)
 
+    # load results into array
     arr = []
     for item in res:
         arr.append(item)
     if len(arr) < 1:
-        return Response('No Records Found', status.HTTP_204_NO_CONTENT)
+        return Response('No Records Found', status.HTTP_404_NOT_FOUND)
     
-    # mongo data array to pandas dataframe
+    # construct pandas dataframe from mongodb data
     resData = pd.DataFrame(
         arr,
         columns=['sku', 'shelfLocation', 'amount', 'ownerName', 'time'],
     )
+    
+    # respond csv to front end
     csv = resData.to_csv(index=False)
     response = Response(csv, status=status.HTTP_200_OK, content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="shelfSheet.csv"'
@@ -768,10 +782,7 @@ def createInstockInventory(request: HttpRequest):
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
 
-    try:
-        instock_collection.insert_one(newInv.__dict__)
-    except:
-        return Response('Cannot Add to Database', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    instock_collection.insert_one(newInv.__dict__)
 
     try:
         qa_collection.update_one(
@@ -1748,12 +1759,6 @@ def scrapeInfoBySkuAmazon(request: HttpRequest):
         return Response('Invalid URL', status.HTTP_400_BAD_REQUEST)
     elif 'a.co' not in link and 'amazon' not in link and 'amzn' not in link:
         return Response('Invalid URL, Not Amazon URL', status.HTTP_400_BAD_REQUEST)
-    
-    # generate header with random user agent
-    headers = {
-        'User-Agent': f'user-agent={ua.random}',
-        'Accept-Language': 'en-US,en;q=0.9',
-    }
 
     # get raw html and parse it with scrapy
     # TODO: use 10 proxy service to incraese scraping speed
@@ -1767,10 +1772,9 @@ def scrapeInfoBySkuAmazon(request: HttpRequest):
     # webdriver
     # res = webDriverGet(link)
     
-    # print(res)    
-    
     # request the raw html from Amazon
-    rawHTML = requests.get(url=link, headers=headers).text
+    # rawHTML = requests.get(url=link, headers=headers).text
+    rawHTML = request_with_proxy(link).text
     response = HtmlResponse(url=link, body=rawHTML, encoding='utf-8')
      
         
@@ -1781,19 +1785,21 @@ def scrapeInfoBySkuAmazon(request: HttpRequest):
     payload['title'] = getTitle(response)
     # except:
     #     return Response('Failed to Get Title', status.HTTP_500_INTERNAL_SERVER_ERROR)
-    try:
-        payload['msrp'] = getMsrp(response)
-    except:
-        return Response('Failed to Get MSRP', status.HTTP_500_INTERNAL_SERVER_ERROR)
-    try:
-        payload['imgUrl'] = getImageUrl(response)
-    except:
-        return Response('No Image URL Found', status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    try:
-        payload['currency'] = getCurrency(response)
-    except:
-        return Response('No Currency Info Found', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    # try:
+    payload['msrp'] = getMsrp(response)
+    # except:
+    #     return Response('Failed to Get MSRP', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    # try:
+    payload['imgUrl'] = getImageUrl(response)
+    # except:
+    #     return Response('No Image URL Found', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    # try:
+    payload['currency'] = getCurrency(response)
+    # except:
+    #     return Response('No Currency Info Found', status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response(payload, status.HTTP_200_OK)
 
 # return msrp from home depot for given sku

@@ -1,10 +1,9 @@
 import re
 import time
 import random
-
 from bs4 import BeautifulSoup
 
-from CCPDController.web_driver import create_driver
+# from CCPDController.web_driver import create_driver
 
 # Amazon scrapping utils 
 # works for both Amazon CA nad US
@@ -114,7 +113,8 @@ def getMsrp(response):
     integer = center.xpath(f'//span[has-class("{priceWholeClass}")]/text()').extract()
     decimal = center.xpath(f'//span[has-class("{priceFractionClass}")]/text()').extract()
     if integer and decimal:
-        price = float(integer[0] + '.' + decimal[0])
+        # remove comma
+        price = float(integer[0].replace(",", "") + '.' + decimal[0])
         return price
     
     # extract price range if no fixed price
@@ -193,12 +193,12 @@ def getCurrency(response) -> str:
 
 def webDriverGet(url: str) -> str:
     # Use the WebDriver to navigate to a webpage
-    driver = create_driver()
-    driver.get(url)
+    # driver = create_driver()
+    # driver.get(url)
     
-    # Get and print the title of the page
-    print(f"Page title is: {driver.title}")
+    # # Get and print the title of the page
+    # print(f"Page title is: {driver.title}")
     
-    # Always remember to quit the driver
-    driver.quit()
+    # # Always remember to quit the driver
+    # driver.quit()
     return ''
