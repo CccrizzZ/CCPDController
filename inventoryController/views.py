@@ -163,31 +163,60 @@ def getInventoryByOwnerName(request: HttpRequest):
  
     return Response(arr, status.HTTP_200_OK)
 
-# get all qa inventory condition stats for graph by qa name
+# get bar charts and pie charts data for my inventory page in qa app
 # ownerName: string
 @api_view(['POST'])
 @permission_classes([IsQAPermission | IsAdminPermission])
-def getQAConditionInfoByOwnerName(request: HttpRequest):
+def getQAInfoByOwnerName(request: HttpRequest):
     # try:
     body = decodeJSON(request.body)
     name = sanitizeString(body['ownerName'])
     # except:
     #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
-    arr = []
     # array of all inventory
+    arr = []
     condition = []
     con = qa_collection.find({ 'ownerName': name }, { 'itemCondition': 1 })
     if not con:
-        return Response('No Inventory Found', status.HTTP_204_NO_CONTENT)
+        return Response('No Inventory Found', status.HTTP_404_NOT_FOUND)
+    
+    # make inventory array
     for inventory in con:
         arr.append(inventory['itemCondition'])
-    
-    # make data object for charts
     itemCount = Counter()
     for condition in arr:
-        itemCount[condition] += 1   
-    return Response(dict(itemCount))
+        itemCount[condition] += 1
+    
+    # make data object for pie charts
+    # get all inventory from target user recorded in past 7 days
+    startTime = getNDayBeforeToday(7)
+    past7Days = qa_collection.find(
+        {
+            'ownerName': name,
+            'time': {
+                '$gte': startTime
+            }
+        }, 
+        {'_id': 0, 'sku': 1, 'time': 1}
+    ).sort('time', pymongo.DESCENDING)
+    if not past7Days:
+        return Response('No Inventory Found', status.HTTP_404_NOT_FOUND)
+    
+    # make array for all inventories
+    past7DaysArr = []
+    for inventory in past7Days:
+        past7DaysArr.append(inventory)
+    
+    # populate date keys first, to include days with zero inventory
+    all7Dates = [(datetime.fromisoformat(startTime) + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(8)]
+    past7DaysCounter = Counter({date: 0 for date in all7Dates})
+    
+    # count the results
+    for item in past7DaysArr:
+        date = datetime.fromisoformat(item['time']).strftime('%Y-%m-%d')
+        past7DaysCounter[date] += 1
+    return Response({'pieData': dict(itemCount), 'barData': dict(past7DaysCounter)}, status.HTTP_200_OK)
 
 # create single inventory Q&A record
 @api_view(['PUT'])
