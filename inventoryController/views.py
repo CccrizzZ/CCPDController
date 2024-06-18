@@ -1222,36 +1222,47 @@ def createRemainingRecord(request: HttpRequest):
         return Response('No File Uploaded', status.HTTP_400_BAD_REQUEST)
     
     # try:
-    # destruct from formData
-    lot_number = sanitizeNumber(int(request.data.get('lot')))
-    res = remaining_collection.find_one({'lot': lot_number})
-    if res:
-        return Response('Remaining Record Existed', status.HTTP_409_CONFLICT)
+    # get remaining lot number from form in request
+    lot_number = sanitizeNumber(float(request.data.get('lot')))
     
-    # get itemArr in auction record
+    # # check if remaining record exists
+    # res = remaining_collection.find_one({'lot': lot_number})
+    # if res:
+    #     return Response('Remaining Record Existed', status.HTTP_409_CONFLICT)
+    
+    # find auction record by lot number
     auctionRecord = auction_collection.find_one(
         {'lot': lot_number}, 
         {'_id': 0, 'itemsArr': 1, 'topRow': 1, 'itemLotStart': 1}
     )
     if not auctionRecord:
         return Response(f'Auction {lot_number} Not Found', status.HTTP_404_NOT_FOUND)
+    
+    # make array for all items in auction
     targetAuctionItemsArr = auctionRecord['itemsArr'] if 'itemsArr' in auctionRecord else []
+    # array for all top row items
     targetAuctionTopRow = auctionRecord['topRow'] if 'topRow' in auctionRecord else []
+    # item lot start 
     itemLotStart = auctionRecord['itemLotStart'] if 'itemLotStart' in auctionRecord else 100
     
-    
     try:
-        # load the file with io
+        # load the xls file
         file_in_memory = io.BytesIO(xls.read())
-        workbook = xlrd.open_workbook_xls(file_contents=file_in_memory.getvalue(), encoding_override='utf-8')
+        # create work book and get data array
+        workbook = xlrd.open_workbook_xls(
+            file_contents=file_in_memory.getvalue(), 
+            encoding_override='utf-8'
+        )
         sheet = workbook.sheet_by_index(0)
         header = sheet.row_values(0)
+        # get all datas from worksheet
         data = [sheet.row_values(row) for row in range(1, sheet.nrows)]
+        # make panda dataframe
         df = pd.DataFrame(data, columns=header)
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
-    # loop rows in xls file
+    # make remaining init datas
     soldTopRow = []
     unsoldTopRow = []
     soldItems = []
@@ -1259,24 +1270,29 @@ def createRemainingRecord(request: HttpRequest):
     errorItems = []
     notInAuction = []
     totalBidAmount = 0
-    for index, row in df.iterrows():
+    
+    # loop all rows in xls file
+    for _, row in df.iterrows():
         row = row.to_dict()
-        # continue if lot number contains letters
+        # continue if lot number contains letters (is not a integer)
         try:
             lot = sanitizeNumber(int(row.get('clotnum'))) # lot number might not be int, could be '1a' '1f' 'ff'
         except:
             continue
+        
+        # pull datas from xls file row
         sold = sanitizeString(row.get('soldstatus'))
         lead = sanitizeString(row.get('lead'))
         bid = sanitizeNumber(float(row.get('bidamount')))
         reserve = sanitizeNumber(float(row.get('bidreserve')))
         
-        # top rows
+        # if item is from top rows
         if lot < itemLotStart:
             try:
                 item = findObjectInArray(targetAuctionTopRow, 'lot', lot)
             except:
                 # cannot find item in auction toprow
+                # item name is not information row, store in not found list
                 if lead != 'Welcome':
                     notInAuction.append({
                         'lot': lot,
@@ -1288,11 +1304,10 @@ def createRemainingRecord(request: HttpRequest):
                 continue
 
             # pull toprow from item in auction record
-            # reserve = sanitizeNumber(float(item['reserve'])) if 'reserve' in item else 0
             shelf = sanitizeString(item['shelfLocation'])
             sku = sanitizeNumber(item['sku'])
             
-            # determin sold or not
+            # top row item sold
             if sold == 'S':
                 newTopRowSold = {
                     'soldStatus': sold,
@@ -1302,11 +1317,12 @@ def createRemainingRecord(request: HttpRequest):
                     'lead': lead,
                     'reserve': reserve,
                     'shelfLocation': shelf,
-                    'quantityInstock': 1
+                    'quantityInstock': 1           # ? Implement quantity check for top row ?
                 }
                 soldTopRow.append(newTopRowSold)
                 # add top row to total bid amount
                 totalBidAmount += bid
+            # top row item not sold
             elif sold == 'NS':
                 newTopRowUnsold = {
                     'lot': lot,
@@ -1319,10 +1335,13 @@ def createRemainingRecord(request: HttpRequest):
                     'startBid': sanitizeNumber(float(item['startBid'])) if 'startBid' in item else 0,
                 }
                 unsoldTopRow.append(newTopRowUnsold)
+        # bottom inventory created from a selection of instock inventory
         else:
-            # bottom inventory
             try:
+                # pull info from item in auction record
                 item = findObjectInArray(targetAuctionItemsArr, 'lot', lot)
+                shelf = sanitizeString(item['shelfLocation'])
+                sku = sanitizeNumber(item['sku'])
             except:
                 # push into not in auction if lot number not found in auction record
                 notInAuction.append({
@@ -1331,24 +1350,27 @@ def createRemainingRecord(request: HttpRequest):
                     'lead': lead,
                     'bid': bid
                 })
-                # print(f'Item #{lot} not found in matching auction record')
                 continue
 
-            # pull info from item in auction record
-            # reserve = sanitizeNumber(float(item['reserve'])) if 'reserve' in item else 0
-            shelf = sanitizeString(item['shelfLocation'])
-            sku = sanitizeNumber(item['sku'])
-            
-            # determin sold or not
-            if sold == 'S':
-                # check instock database for out-of-stock items
-                # all out of stock item will goto errorItems array
+            # find bottom item in instock database collection
+            try:
                 instock = instock_collection.find_one(
-                    { 'sku': sku, 'shelfLocation': shelf }, 
-                    { '_id': 0, 'quantityInstock': 1 }
+                    { 'sku': sku }, 
+                    { '_id': 0 }
                 )
-                # construct instock item object
+                # get quantity for that item
                 quantity = int(instock['quantityInstock'])
+            except:
+                # if not found in inventory, add it to error item, goto next row
+                errorItems.append(item)
+                continue
+            if not instock or not quantity:
+                errorItems.append(item)
+                continue
+            
+            # if bottom item sold
+            if sold == 'S':
+                # construct sold item object
                 soldItem = {
                     'soldStatus': sold,
                     'bidAmount': bid,
@@ -1359,15 +1381,16 @@ def createRemainingRecord(request: HttpRequest):
                     'shelfLocation': shelf,
                     'quantityInstock': quantity
                 }
+                
                 # if sold item in stock push into sold, if not push into error item
                 if quantity > 0:
                     soldItems.append(soldItem)
-                    # TODO: Add bid amount to retail manager as sells record 
                     totalBidAmount += bid
                 else:
                     errorItems.append(soldItem)
+                    
+            # if not sold push into unsold array
             elif sold == 'NS':
-                # if not sold push into unsold
                 remainingItem = {
                     'lot': lot,
                     'sku': sku,
@@ -1382,12 +1405,13 @@ def createRemainingRecord(request: HttpRequest):
 
     # search for item not in remaining records but in auction record
     jointAuc = targetAuctionTopRow + targetAuctionItemsArr
-    jointAuc_data = [{'sku': aucItem['sku']} for aucItem in jointAuc]
+    jointAuc_data = [aucItem for aucItem in jointAuc]
     jointSold = soldTopRow + soldItems
     jointSold_data = [{'sku': soldItem['sku']} for soldItem in jointSold]
-    jointUnsold = unsoldTopRow + unsoldItems + errorItems + notInAuction
-    jointUnsold_data = [{'sku': unsoldItem['sku']} for unsoldItem in jointUnsold]
+    jointUnsold = unsoldTopRow + unsoldItems
+    jointUnsold_data = [item for item in jointUnsold]
     notInRemaining = []
+    
     # loop arrays populate not in remaining
     for item in jointAuc_data:
         if item not in jointSold_data:
@@ -1433,7 +1457,7 @@ def deleteAuctionRecord(request: HttpRequest):
 def deleteRemainingRecord(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
-        remainingLotNumber = sanitizeNumber(body['remainingLotNumber'])
+        remainingLotNumber = sanitizeNumber(float(body['remainingLotNumber']))
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
