@@ -372,3 +372,62 @@ def processInstock(itemArr, instockRes, duplicate):
         else:
             itemArr.append(auctionItem)
     return itemArr
+
+
+vendor_name = 'B0000'
+def makeCSVRowFromItem(item):
+    # get float msrp
+    if 'msrp' in item:
+        msrp = float(sanitizeNumber(item['msrp']))
+    else:
+        msrp = 0
+        
+    # description adjusted according to msrp
+    if 'description' in item:
+        desc = sanitizeString(item['description'])
+    else: 
+        desc = ''
+    
+    # get title
+    if 'lead' in item:
+        lead = sanitizeString(item['lead'])
+    else:
+        lead = ''
+    
+    # get start bid
+    if 'msrp' in item:
+        price = sanitizeNumber(item['msrp'])
+        startbid = 0
+        if price < 11:
+            startbid = 1
+        elif price < 21:
+            startbid = 2
+        elif price < 31:
+            startbid = 3
+        else:
+            startbid = 5
+        
+    # get reserve price
+    if 'reserve' in item:
+        reserve = sanitizeNumber(item['reserve'])
+    else:
+        reserve = reserve_default
+    
+    sku = sanitizeNumber(item['sku'])
+    itemLot = sanitizeNumber(item['lot'])
+    
+    # create csv row
+    row = {
+        'Lot': itemLot, 
+        'Lead': lead,
+        'Description': desc.strip(),
+        'MSRP:$': 'MSRP:$',
+        'Price': msrp if msrp > 0 else 'NA',
+        'Location': sanitizeString(item['shelfLocation']),
+        'item': sku,
+        'vendor': vendor_name,
+        'start bid': startbid,
+        'reserve': reserve,
+        'Est': msrp if msrp > 0 else 'NA',
+    }
+    return row

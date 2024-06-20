@@ -1,3 +1,4 @@
+from email.mime import image
 import io
 from operator import le
 import os
@@ -15,7 +16,7 @@ from CCPDController.utils import (
     convertToAmountPerDayData, decodeJSON, 
     get_db_client, getBlobTimeString, 
     getIsoFormatInv, 
-    getNDayBeforeToday, getTimeRangeFil, 
+    getNDayBeforeToday, getTimeRangeFil, makeCSVRowFromItem, 
     populateSetData, sanitizeBoolean, 
     sanitizeNumber, 
     sanitizeSku, 
@@ -47,7 +48,6 @@ import random
 
 # append this in front of description for item msrp lte 80$
 desc_under_80 = 'READ NEW TERMS OF USE BEFORE YOU BID!'
-vendor_name = 'B0000'
 default_start_bid = 5
 default_start_bid_mystery_box = 5
 aliexpress_mystery_box_closing = 25
@@ -859,107 +859,56 @@ def getAuctionCsv(request: HttpRequest):
     if not record:
         return Response('Auction Record Not Found', status.HTTP_404_NOT_FOUND)
     
-    # process the top row array
+    # make top row inventory array
     topRow = []
     if 'topRow' in record:
         topRowArr = record['topRow']
         for item in topRowArr:
-            if 'msrp' in item:
-                msrp = float(sanitizeNumber(item['msrp']))
-            else:
-                msrp = 0
-            if 'description' in item:
-                if msrp != '' and msrp < 80:
-                    desc = desc_under_80 + ' '+ sanitizeString(item['description'])
-                else:
-                    desc = sanitizeString(item['description'])
-            else: 
-                desc = ''
-            if 'lead' in item:
-                lead = sanitizeString(item['lead'])
-            else:
-                lead = ''
-            if 'startBid' in item:
-                startBid = sanitizeNumber(item['startBid'])
-            else:
-                startBid = ''
-            if 'reserve' in item:
-                reserve = sanitizeNumber(item['reserve'])
-            else:
-                reserve = reserve_default
-        
-            row = {
-                'Lot': sanitizeNumber(item['lot']), 
-                'Lead': lead,
-                'Description': desc,
-                'MSRP:$': 'MSRP:$',
-                'Price': msrp if msrp > 0 else 'NA',
-                'Location': sanitizeString(item['shelfLocation']),
-                'item': sanitizeNumber(item['sku']),
-                'vendor': vendor_name,
-                'start bid': startBid,
-                'reserve': reserve,
-                'Est': msrp if msrp > 0 else 'NA',
-            }
+            row = makeCSVRowFromItem(item)
             topRow.append(row)
     
-    # make inventory csv rows
+    # make array for bottom rows inventory
     itemsArrData = []
     imageArrData = []
     itemsArr = record['itemsArr']
     for item in itemsArr:
-        # get float msrp
-        if 'msrp' in item:
-            msrp = float(sanitizeNumber(item['msrp']))
-        else:
-            msrp = 0
-            
-        # description adjusted according to msrp
-        if 'description' in item:
-            if msrp != '' and msrp < 80:
-                desc = desc_under_80 + ' '+ sanitizeString(item['description'])
-            else:
-                desc = sanitizeString(item['description'])
-        else: 
-            desc = ''
-        
-        # get title
-        if 'lead' in item:
-            lead = sanitizeString(item['lead'])
-        else:
-            lead = ''
-        if 'reserve' in item:
-            reserve = sanitizeNumber(item['reserve'])
-        else:
-            reserve = reserve_default
-        
-        sku = sanitizeNumber(item['sku'])
-        itemLot = sanitizeNumber(item['lot'])
-        # create csv row
-        row = {
-            'Lot': itemLot, 
-            'Lead': lead,
-            'Description': desc.strip(),
-            'MSRP:$': 'MSRP:$',
-            'Price': msrp if msrp > 0 else 'NA',
-            'Location': sanitizeString(item['shelfLocation']),
-            'item': sku,
-            'vendor': vendor_name,
-            'start bid': default_start_bid,
-            'reserve': reserve,
-            'Est': msrp if msrp > 0 else 'NA',
-        }
+        row = makeCSVRowFromItem(item)
         itemsArrData.append(row)
-        
-        # populate photo names array
-        sku = f"sku = '{sku}'" 
+        # build blob filter tag 
+        sku = f"sku = '{item['sku']}'" 
+        # get blob list by tag
         blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=sku)
-        imageCount = sum(1 for _ in blob_list)
+        # all images names by auction lot 
         images = []
+        # get images count per item
+        imageCount = sum(1 for _ in blob_list)
+        # item lot number in auction
+        itemLot = sanitizeNumber(item['lot'])
         for x in range(imageCount):
             name = f"{itemLot}_{x + 1}.jpg"  # image name starts with lot_1.jpg
             images.append(name)
         imageArrData.append(images)
+    
+    # make array for previously unsold
+    allUnsoldArr = []
+    for obj in record['previousUnsoldArr']:
+        itemsArr = obj['items']
+        for item in itemsArr:
+            # item info
+            itemLot = sanitizeNumber(item['lot'])
+            # make row using utility function
+            row = makeCSVRowFromItem(item)
+            allUnsoldArr.append(row)
+            # image info
+            images = []
+            # list all blob name for each sku
+            blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=sku)
+            # count image and push them into array
+            count = sum(1 for _ in blob_list)
+            for x in range(count):
+                name = f"{itemLot}_{x + 1}.jpg"
+                images.append(name)
+            imageArrData.append(images)
     
     # column head
     columns = [
@@ -978,18 +927,19 @@ def getAuctionCsv(request: HttpRequest):
 
     # construct data frame for top row + items 
     df = pd.DataFrame(
-        data=(topRow + itemsArrData),
+        data=(topRow + itemsArrData + allUnsoldArr),
         columns=columns
     )
     
-    # if toprow exist
+    # if toprow exist, make space for top row
     if len(topRow) > 0:
-        # make space for top row
         for x in range(len(topRowArr)):
             imageArrData.insert(0, [])
     # create df for images
     image_df = pd.DataFrame(imageArrData)
-    # add empty column head for image columns
+    
+    
+    # add empty column head for image columns to make space at the end
     col = len(image_df.columns)
     for x in range(col):
         columns.append('')
@@ -1433,7 +1383,7 @@ def createRemainingRecord(request: HttpRequest):
         'notInRemaining': notInRemaining,
         'soldTopRow': soldTopRow,
         'unsoldTopRow': unsoldTopRow,
-        'totalBidAmount': totalBidAmount,
+        'totalBidAmount': round(totalBidAmount, 2),
     }
     remaining_collection.insert_one(RemainingInfo)
     return Response('Remaining Record Created', status.HTTP_200_OK)
@@ -1635,45 +1585,81 @@ def getRemainingLotNumbers(request: HttpRequest):
 def importUnsoldItems(request: HttpRequest):
     # try:
     body = decodeJSON(request.body)
-    auctionLotNumber = sanitizeNumber(int(body['auctionLotNumber']))
-    remainingLotNumber = sanitizeNumber(int(body['remainingLotNumber']))
-    exist = auction_collection.find_one({f'previousUnsoldArr.{remainingLotNumber}': {'$exists': True}})
-    
+    auctionLotNumber = sanitizeNumber(float(body['auctionLotNumber']))
+    remainingLotNumber = sanitizeNumber(float(body['remainingLotNumber']))
+
+    # find auction record without the unsold in the prev unsold array
+    auction = auction_collection.find_one(
+        {
+            'lot': auctionLotNumber,
+            'previousUnsoldArr': {
+                '$not': {
+                    "$elemMatch": { "lot": remainingLotNumber }
+                }
+            },
+        },
+        {
+            '_id': 0,
+            'totalItems': 1, 
+            'itemsArr': 1,
+            'previousUnsoldArr': 1
+        }
+    )
     # check for existing data
-    if exist:
+    if not auction:
         return Response('Already Imported', status.HTTP_409_CONFLICT)
+    
+    # check for unsold sets
+    if 'previousUnsoldArr' not in auction or len(auction['previousUnsoldArr']) < 1:
+        # find object with the largest lot value (bottom ones)
+        largest = max(auction['itemsArr'], key=lambda x: x["lot"])
+    else:
+        # get the last object in unsold array
+        arr = auction['previousUnsoldArr'][-1]['items']
+        largest = max(arr, key=lambda x: x['lot'])    
+    unsoldLotStart = largest['lot'] + 1
+    
     # except:
     #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
-    auction = auction_collection.find_one({ 'lot': auctionLotNumber }, { '_id': 0, 'totalItems': 1, 'itemLotStart': 1})
-    unsoldLotStart = auction['itemLotStart'] + auction['totalItems']
-    # look for remaining record
-    remaining = remaining_collection.find_one({ 'lot': remainingLotNumber }, {'_id': 0, 'unsoldItems': 1})
+    # get unsold items array from targeted remaining record
+    remaining = remaining_collection.find_one(
+        { 'lot': remainingLotNumber }, 
+        {
+            '_id': 0, 
+            'unsoldItems': 1
+        }
+    )
     if not remaining:
         return Response('Remaining Record Not Found', status.HTTP_404_NOT_FOUND)
     
-    # loop unsold items
+    # get all unsold items in an array
     remainingItemsArr = []
     resultArr = []
     for unsold in remaining['unsoldItems']:
         remainingItemsArr.append(unsold)
+    # if no unsold items return not found
     if len(remainingItemsArr) < 1:
         return Response(f'No Unsold Items Found for Lot {remainingLotNumber}', status.HTTP_404_NOT_FOUND)
-    else:
-        # randomly sort the unsold items from previous lot
-        random.shuffle(remainingItemsArr)
-        for unsold in remainingItemsArr:
-            resultArr.append({**unsold, 'lot': unsoldLotStart})
-            unsoldLotStart += 1
+    
+    # randomly sort the unsold items
+    random.shuffle(remainingItemsArr)
+    for unsold in remainingItemsArr:
+        resultArr.append({**unsold, 'lot': unsoldLotStart})
+        unsoldLotStart += 1
 
-    # look for auction record
-    # and insert previous remaining record into the 
+    # create new object in unsold array
+    # set the total items count
     auction = auction_collection.find_one_and_update(
-        { 'lot': auctionLotNumber },
+        { 
+            'lot': auctionLotNumber,
+        },
         {
             '$set': {
-                'totalItems': auction['totalItems'] + len(remainingItemsArr),
-                f'previousUnsoldArr.{remainingLotNumber}': remainingItemsArr,
+                'totalItems': auction['totalItems'] + len(remainingItemsArr)
+            },
+            '$push': {
+                'previousUnsoldArr': { 'lot': remainingLotNumber, 'items': resultArr }
             }
         }
     )
@@ -1687,9 +1673,12 @@ def importUnsoldItems(request: HttpRequest):
 def deleteUnsoldItems(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
-        auctionLotNumber = sanitizeNumber(body['auctionLotNumber'])
-        lot = sanitizeNumber(int(body['remainingLotNumber']))
-        remaining = remaining_collection.find_one({'lot': lot}, {'_id': 0, 'unsoldCount': 1})
+        auctionLotNumber = sanitizeNumber(float(body['auctionLotNumber']))
+        lotToDelete = sanitizeNumber(float(body['remainingLotNumber']))
+        remaining = remaining_collection.find_one(
+            {'lot': lotToDelete}, 
+            {'_id': 0, 'unsoldCount': 1}
+        )
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
@@ -1697,8 +1686,8 @@ def deleteUnsoldItems(request: HttpRequest):
     auction = auction_collection.find_one_and_update(
         {'lot': auctionLotNumber},
         {
-            '$unset': { 
-                'previousUnsoldArr': lot,
+            '$pull': { 
+                'previousUnsoldArr': {'lot': lotToDelete},
             },
             '$inc':{
                 'totalItems': -(remaining['unsoldCount'])
@@ -1707,7 +1696,7 @@ def deleteUnsoldItems(request: HttpRequest):
     )
     if not auction:
         return Response('Cannot Delete Unsold from Auction', status.HTTP_500_INTERNAL_SERVER_ERROR)
-    return Response(f'Deleted Remaining Lot {lot} In Auction {auctionLotNumber}', status.HTTP_200_OK)
+    return Response(f'Deleted Remaining Lot {lotToDelete} In Auction {auctionLotNumber}', status.HTTP_200_OK)
 
 # this will update sold items to database
 @api_view(['POST'])
@@ -1723,7 +1712,8 @@ def auditRemainingRecord(request: HttpRequest):
     )
     if not remaining:
         return Response('Remaining Record Not Found', status.HTTP_404_NOT_FOUND)
-    if remaining['isProcessed']:
+    print(remaining)
+    if remaining['isProcessed'] == True:
         return Response('Remaining Record Already Processed', status.HTTP_409_CONFLICT)
     # except:
     #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
