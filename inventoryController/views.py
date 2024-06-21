@@ -1492,18 +1492,34 @@ def addSelectionToAuction(request: HttpRequest):
     fil = {}
     # try:
     body = decodeJSON(request.body)
-    auctionLot = sanitizeNumber(body['auctionLot'])
+    auctionLot = sanitizeNumber(int(body['auctionLot']))
     duplicate = sanitizeNumber(body['duplicate'])
     unpackInstockFilter(body['filter'], fil)
     # except:
     #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     # check if auction record exist
-    auction = auction_collection.find_one({'lot': auctionLot}, {'_id': 0, 'totalItems': 1, 'itemLotStart': 1, 'itemsArr': 1})
+    auction = auction_collection.find_one(
+        {'lot': auctionLot}, 
+        {'_id': 0}
+    )
     if not auction:
         return Response(f'Auction {auctionLot} not Found', status.HTTP_404_NOT_FOUND)
-    currentItemsArr = auction['itemsArr'] if 'itemsArr' in auction else []    
     
+    # determine gap between itemsArr and first item in first unsold object
+    lastItemsLot = max(auction['itemsArr'], key=lambda x: x['lot'])['lot']
+    # print(f'Last Lot number in itemArr: {lastItemsLot}')
+    firstUnsoldLot = auction['previousUnsoldArr'][0]['items'][0]['lot'] if 'previousUnsoldArr' in auction and len(auction['previousUnsoldArr']) > 0 else None
+    # print(f'First Lot number in First Unsold Object: {firstUnsoldLot}')
+    
+    # check for unsold object
+    if firstUnsoldLot != None:
+        gap = firstUnsoldLot - lastItemsLot - 1
+        # if no gap between bottom row and unsold, return error
+        if gap == 0:
+            return Response(f'No Gap Between Bottom Rows and Unsold Array', status.HTTP_400_BAD_REQUEST)
+    
+    # check gap between    
     # get all selected items
     itemsArr = []
     instock = instock_collection.find(
@@ -1519,18 +1535,25 @@ def addSelectionToAuction(request: HttpRequest):
             'quantityInstock': 1 
         }
     ).sort({ 'msrp': -1 })
-    
     # populate instock array for selected items
-    itemsArr = processInstock(itemsArr, instock, duplicate)
+    itemsArr = processInstock(itemsArr, instock, duplicate, auction['itemsArr'])
+    
     # count howmany items selected
     count = len(itemsArr)
+    if firstUnsoldLot != None:
+        if count > gap:
+            return Response(f'Too Many Items ({count}) to Insert, Gap Size = {gap}', status.HTTP_400_BAD_REQUEST)
     
-    # itemLotStart = auction['itemLotStart'] + auction['totalItems']
-    # get the biggest lot
-    itemLotStart = auction['itemsArr'][-1]['lot'] + 1 if 'itemsArr' in auction and len(auction['itemsArr']) > 0 else auction['itemLotStart']
-    # append item lot number on to the object
+    
+    
+    # join old auction and new array
+    # sort msrp: -1
+    # set itemsArr: jointArr
+    
+    # make index array and zip it with imported items
     indexArr = []
-    for index in range(itemLotStart + 1, itemLotStart + count + 1):
+    lastLot = lastItemsLot + 1
+    for index in range(lastLot, lastLot + count):
         indexArr.append({ 'lot': index })
     newList = [{ **d1, **d2 } for d1, d2 in zip(indexArr, itemsArr)]
     
@@ -1538,33 +1561,30 @@ def addSelectionToAuction(request: HttpRequest):
     # increment the total item field
     update = auction_collection.update_one(
         { 'lot': auctionLot }, 
-        [
-            {
-                '$set': {
-                    'itemsArr': {
-                        '$concatArrays': [
-                            {'$ifNull': ['$itemsArr', []]},
-                            newList
-                        ],
-                    },
-                    'totalItems': len(newList) + len(currentItemsArr)
+        {
+            '$push': {
+                'itemsArr': {
+                    '$each': newList
                 },
             },
-        ]
+            '$inc': {
+                'totalItems': len(newList)
+            }
+        },
     )
     
     # sort the array by msrp
-    auction_collection.update_one(
-        { 'lot': auctionLot },
-        {
-           '$push': {
-               'itemsArr': {
-                    '$each': [],
-                    '$sort': { 'msrp': -1 }
-               }
-           }
-        }
-    )
+    # auction_collection.update_one(
+    #     { 'lot': auctionLot },
+    #     {
+    #        '$push': {
+    #            'itemsArr': {
+    #                 '$each': [],
+    #                 '$sort': { 'msrp': -1 }
+    #            }
+    #        }
+    #     }
+    # )
     if not update:
         return Response('Cannot Add Item to Auction', status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response(f'Selection Added to Auction {auctionLot}', status.HTTP_200_OK)
@@ -1577,7 +1597,19 @@ def getRemainingLotNumbers(request: HttpRequest):
     arr= []
     for item in res:
         arr.append(item)
+    arr.sort(reverse=True)
     return Response(arr, status.HTTP_200_OK)
+
+@api_view(['GET'])
+@permission_classes([IsAdminPermission])
+def getAuctionLotNumbers(request: HttpRequest):
+    # grab remaining record if unsold items exist
+    res = auction_collection.find({}, { '_id': 0, 'lot': 1}).distinct('lot')
+    arr= []
+    for item in res:
+        arr.append(item)
+    arr.sort(reverse=True)
+    return Response(arr ,status.HTTP_200_OK)
 
 # add unsold items to auction record 
 @api_view(['POST'])
@@ -1587,6 +1619,7 @@ def importUnsoldItems(request: HttpRequest):
     body = decodeJSON(request.body)
     auctionLotNumber = sanitizeNumber(float(body['auctionLotNumber']))
     remainingLotNumber = sanitizeNumber(float(body['remainingLotNumber']))
+    gapSize = sanitizeNumber(body['gapSize'])
 
     # find auction record without the unsold in the prev unsold array
     auction = auction_collection.find_one(
@@ -1616,8 +1649,8 @@ def importUnsoldItems(request: HttpRequest):
     else:
         # get the last object in unsold array
         arr = auction['previousUnsoldArr'][-1]['items']
-        largest = max(arr, key=lambda x: x['lot'])    
-    unsoldLotStart = largest['lot'] + 1
+        largest = max(arr, key=lambda x: x['lot'])
+    unsoldLotStart = largest['lot'] + gapSize + 1
     
     # except:
     #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)

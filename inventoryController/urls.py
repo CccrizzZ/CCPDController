@@ -36,6 +36,7 @@ urlpatterns = [
     path("deleteAuctionRecord", views.deleteAuctionRecord, name="deleteAuctionRecord"),
     path("deleteRemainingRecord", views.deleteRemainingRecord, name="deleteRemainingRecord"),
     path("getRemainingLotNumbers", views.getRemainingLotNumbers, name="getRemainingLotNumbers"),
+    path("getAuctionLotNumbers", views.getAuctionLotNumbers, name="getAuctionLotNumbers"),
     path("importUnsoldItems", views.importUnsoldItems, name="importUnsoldItems"),
     path("deleteUnsoldItems", views.deleteUnsoldItems, name="deleteUnsoldItems"),
     path("auditRemainingRecord", views.auditRemainingRecord, name="auditRemainingRecord"),

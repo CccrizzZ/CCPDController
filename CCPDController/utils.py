@@ -332,9 +332,12 @@ def getBidReserve(description, msrp, condition):
     return {'startBid': startbid, 'reserve': reserve}
 
 
-def processInstock(itemArr, instockRes, duplicate):
+def processInstock(itemArr, instockRes, duplicate, existingAuctionItems=None):
     # loop all filtered instock items
     for item in instockRes:
+        if any(obj['sku'] == item['sku'] for obj in existingAuctionItems):
+            print(f'item {item['sku']} already exist')
+            continue
         quantity = item['quantityInstock']
         item.pop('quantityInstock')
         
@@ -344,6 +347,7 @@ def processInstock(itemArr, instockRes, duplicate):
             item['msrp'] if 'msrp' in item else 0, 
             item['condition'] if 'condition' in item else 'New'
         )
+        
         # if specified startbid and reserve, pull from item 
         if 'startBid' in item and 'reserve' in item:
             priceObj = {
@@ -367,7 +371,7 @@ def processInstock(itemArr, instockRes, duplicate):
 
         # if duplication option, duplicate the row x times
         if duplicate and quantity > 1:
-            for x in range(quantity):
+            for _ in range(quantity):
                 itemArr.append(auctionItem)
         else:
             itemArr.append(auctionItem)
