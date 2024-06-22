@@ -3,7 +3,9 @@ import io
 from operator import le
 import os
 import pprint
+from re import L
 from django.http import HttpRequest
+from numpy import sort
 import requests
 import scrapy
 from scrapy.http import HtmlResponse
@@ -1507,7 +1509,7 @@ def addSelectionToAuction(request: HttpRequest):
         return Response(f'Auction {auctionLot} not Found', status.HTTP_404_NOT_FOUND)
     
     # determine gap between itemsArr and first item in first unsold object
-    lastItemsLot = max(auction['itemsArr'], key=lambda x: x['lot'])['lot']
+    lastItemsLot = max(auction['itemsArr'], key=lambda x: x['lot'])['lot'] if 'itemsArr' in auction and len(auction['itemsArr']) > 0 else auction['itemLotStart']
     # print(f'Last Lot number in itemArr: {lastItemsLot}')
     firstUnsoldLot = auction['previousUnsoldArr'][0]['items'][0]['lot'] if 'previousUnsoldArr' in auction and len(auction['previousUnsoldArr']) > 0 else None
     # print(f'First Lot number in First Unsold Object: {firstUnsoldLot}')
@@ -1524,7 +1526,7 @@ def addSelectionToAuction(request: HttpRequest):
     itemsArr = []
     instock = instock_collection.find(
         fil, 
-        { 
+        {
             '_id': 0, 
             'sku': 1, 
             'lead': 1, 
@@ -1541,37 +1543,45 @@ def addSelectionToAuction(request: HttpRequest):
     # count howmany items selected
     count = len(itemsArr)
     if firstUnsoldLot != None:
+        # if selection have more item than gap
         if count > gap:
             return Response(f'Too Many Items ({count}) to Insert, Gap Size = {gap}', status.HTTP_400_BAD_REQUEST)
-    
-    
-    
+
     # join old auction and new array
-    # sort msrp: -1
-    # set itemsArr: jointArr
-    
-    # make index array and zip it with imported items
+    newItemsArr = auction['itemsArr'] + itemsArr
+
+    # sort by msrp desc
+    newItemsArr = sorted(newItemsArr, key=lambda x: x['msrp'], reverse=True)
+
+    # remove all lots for new lot index
+    for item in newItemsArr:
+        if 'lot' in item:
+            item.pop('lot')
+
+    # make index array from lot start in auction record
     indexArr = []
-    lastLot = lastItemsLot + 1
-    for index in range(lastLot, lastLot + count):
+    start = auction['itemLotStart']
+    for index in range(start, start + len(newItemsArr)):
         indexArr.append({ 'lot': index })
-    newList = [{ **d1, **d2 } for d1, d2 in zip(indexArr, itemsArr)]
+    newList = [{ **d1, **d2 } for d1, d2 in zip(indexArr, newItemsArr)]
     
-    # insert new array into current item array
-    # increment the total item field
+    # set itemsArr: jointArr
     update = auction_collection.update_one(
         { 'lot': auctionLot }, 
         {
-            '$push': {
-                'itemsArr': {
-                    '$each': newList
-                },
-            },
-            '$inc': {
+            '$set': {
+                'itemsArr':newList,  
                 'totalItems': len(newList)
-            }
+            },
         },
     )
+
+    # make index array and zip it with imported items
+    # indexArr = []
+    # lastLot = lastItemsLot + 1
+    # for index in range(lastLot, lastLot + count):
+    #     indexArr.append({ 'lot': index })
+    # newList = [{ **d1, **d2 } for d1, d2 in zip(indexArr, itemsArr)]
     
     # sort the array by msrp
     # auction_collection.update_one(

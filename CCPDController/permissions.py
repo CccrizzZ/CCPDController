@@ -1,5 +1,5 @@
 from rest_framework import permissions
-from CCPDController.utils import get_db_client
+from CCPDController.utils import get_db_client, getIsWorkingHourEST
 
 # pymongo
 db = get_db_client()
@@ -18,6 +18,8 @@ class IsQAPermission(permissions.BasePermission):
     message = 'Permission Denied, QAPersonal Only!'
     def has_permission(self, request, view):
         # if not in work hours, return false
+        if getIsWorkingHourEST() == False:
+            return False
         
         # mongo db query
         # grant if user is qa personal and user is active

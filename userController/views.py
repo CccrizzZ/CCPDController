@@ -309,15 +309,27 @@ def getUserRBACInfo(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
         email = sanitizeString(body['email']).lower()
+        fid = sanitizeString(body['fid']).lower()
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     # pull basic info from database
     res = user_collection.find_one(
-        {'email': email},
-        {'name': 1, 'role': 1}
+        { 'email': email },
+        { 'name': 1, 'role': 1 }
     )
     res['_id'] = str(res['_id'])
+    
+    print(fid)
+    addedId = user_collection.update_one(
+        { 'email': email },
+        {
+            '$set':{
+                'fid': fid
+            }
+        }
+    )
+    
     
     if not res:
         return Response(f'No Such User {email}', status.HTTP_404_NOT_FOUND)

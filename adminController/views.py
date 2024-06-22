@@ -165,14 +165,16 @@ def deleteUserById(request):
         # convert to BSON
         body = decodeJSON(request.body)
         uid = ObjectId(body['id'])
+        fbId = sanitizeString(body['fbID'])
     except:
         return Response('Invalid User ID', status.HTTP_400_BAD_REQUEST)
     
     # query db for user
     res = user_collection.find_one({'_id': uid})
     
-    # if found, delete it
-    if res :
+    # if found, call firebase & mongodb delete user function
+    if res:
+        # auth.delete_user('')
         user_collection.delete_one({'_id': uid})
         return Response('User Deleted', status.HTTP_200_OK)
     return Response('User Not Found', status.HTTP_404_NOT_FOUND)

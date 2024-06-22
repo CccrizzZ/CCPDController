@@ -260,11 +260,11 @@ def getIsWorkingHourEST() -> bool:
     current_time = datetime.now(eastern_timezone)
     hour = current_time.hour
     minute = current_time.minute
-    print(hour)
-    print(minute)
+    # print(hour)
+    # print(minute)
     if hour < 10 and minute < 30:
         return False
-    elif hour > 19 and minute > 0:
+    elif hour > 19 and minute > 30:
         return False
     return True
 
@@ -335,9 +335,11 @@ def getBidReserve(description, msrp, condition):
 def processInstock(itemArr, instockRes, duplicate, existingAuctionItems=None):
     # loop all filtered instock items
     for item in instockRes:
-        if any(obj['sku'] == item['sku'] for obj in existingAuctionItems):
-            print(f'item {item['sku']} already exist')
-            continue
+        # check for repetitive item if existing auction item passed
+        if existingAuctionItems != None:    
+            if any(obj['sku'] == item['sku'] for obj in existingAuctionItems):
+                print(f'item {item['sku']} already exist')
+                continue
         quantity = item['quantityInstock']
         item.pop('quantityInstock')
         

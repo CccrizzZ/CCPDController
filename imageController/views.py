@@ -52,21 +52,19 @@ def getUrlsByOwner(request: HttpRequest):
     for blob in blob_list:
         blob_client = product_image_container_client.get_blob_client(blob.name)
         arr.append(blob_client.url)
-
     return Response(arr, status.HTTP_200_OK)
 
 # sku: str
 # returns an array of image uri (for public access)
 @never_cache
 @api_view(['POST'])
-@permission_classes([IsAdminPermission])
+@permission_classes([IsQAPermission | IsAdminPermission])
 def getUrlsBySku(request: HttpRequest):
-    try:
-        body = decodeJSON(request.body)
-        sanitizeNumber(int(body['sku']))
-    except:
-        return Response('Invalid SKU', status.HTTP_400_BAD_REQUEST)
-    sku = "sku = '" + body['sku'] + "'"
+    # try:
+    body = decodeJSON(request.body)
+    sku = f"sku = '{sanitizeNumber(int(body['sku']))}'"
+    # except:
+    #     return Response('Invalid SKU', status.HTTP_400_BAD_REQUEST)
     blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=sku)
     
     arr = []
