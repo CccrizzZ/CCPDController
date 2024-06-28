@@ -146,12 +146,18 @@ def createUser(request):
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
+    # register with firebase
     try:
-        res = user_collection.insert_one(newUser.__dict__)
+        fb_res = auth.create_user(email=lowercase_user_email, password=body['password'])
     except:
-        return Response('Unable to Create User', status.HTTP_400_BAD_REQUEST)
-    if res:
-        auth.create_user(email=lowercase_user_email, password=body['password'])
+        return Response('Firebase Error, Cannot Create User', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    # register in mongodb
+    if fb_res:
+        try:
+            user_collection.insert_one(newUser.__dict__)
+        except:
+            return Response('Unable to Create User', status.HTTP_400_BAD_REQUEST)
     else:
         return Response('Unable to Create User', status.HTTP_400_BAD_REQUEST)
     return Response('User Created', status.HTTP_200_OK)

@@ -1,6 +1,6 @@
 from email.mime import image
 import io
-from operator import le
+from operator import index, le
 import os
 import pprint
 from re import L
@@ -964,7 +964,7 @@ def getAuctionRemainingRecord(request: HttpRequest):
     auctions = []
     for item in res:
         auctions.append(item)
-    res = remaining_collection.find({}, { '_id': 0 }).sort({ 'lot': -1 })
+    res = remaining_collection.find({}, { '_id': 0 }).sort({ 'timeClosed': -1 })
     remaining = []
     for item in res:
         remaining.append(item)
@@ -1185,18 +1185,31 @@ def createRemainingRecord(request: HttpRequest):
     # find auction record by lot number
     auctionRecord = auction_collection.find_one(
         {'lot': lot_number}, 
-        {'_id': 0, 'itemsArr': 1, 'topRow': 1, 'itemLotStart': 1}
+        {'_id': 0}
     )
     if not auctionRecord:
         return Response(f'Auction {lot_number} Not Found', status.HTTP_404_NOT_FOUND)
     
     # make array for all items in auction
     targetAuctionItemsArr = auctionRecord['itemsArr'] if 'itemsArr' in auctionRecord else []
+    
     # array for all top row items
     targetAuctionTopRow = auctionRecord['topRow'] if 'topRow' in auctionRecord else []
+    
+    # array for all imported unsold
+    targetAuctionUnsold = auctionRecord['previousUnsoldArr'] if 'previousUnsoldArr' in auctionRecord else []
+    allUnsold = []
+    if len(targetAuctionUnsold) > 0:
+        for obj in targetAuctionUnsold:
+            for unsold in obj['items']:
+                allUnsold.append(unsold)
+
+    # append all the unsold into bottom row
+    targetAuctionItemsArr = targetAuctionItemsArr + allUnsold
+    
     # item lot start 
     itemLotStart = auctionRecord['itemLotStart'] if 'itemLotStart' in auctionRecord else 100
-    
+
     try:
         # load the xls file
         file_in_memory = io.BytesIO(xls.read())
@@ -1223,7 +1236,8 @@ def createRemainingRecord(request: HttpRequest):
     notInAuction = []
     totalBidAmount = 0
     
-    # loop all rows in xls file
+    allRemainingSku = []
+    # loop all rows in xls file, populate sold, unsold, not in auction
     for _, row in df.iterrows():
         row = row.to_dict()
         # continue if lot number contains letters (is not a integer)
@@ -1237,8 +1251,8 @@ def createRemainingRecord(request: HttpRequest):
         lead = sanitizeString(row.get('lead'))
         bid = sanitizeNumber(float(row.get('bidamount')))
         reserve = sanitizeNumber(float(row.get('bidreserve')))
-        
-        # if item is from top rows
+
+        # top rows inventory
         if lot < itemLotStart:
             try:
                 item = findObjectInArray(targetAuctionTopRow, 'lot', lot)
@@ -1287,13 +1301,15 @@ def createRemainingRecord(request: HttpRequest):
                     'startBid': sanitizeNumber(float(item['startBid'])) if 'startBid' in item else 0,
                 }
                 unsoldTopRow.append(newTopRowUnsold)
-        # bottom inventory created from a selection of instock inventory
+        # bottom inventory
         else:
             try:
                 # pull info from item in auction record
                 item = findObjectInArray(targetAuctionItemsArr, 'lot', lot)
                 shelf = sanitizeString(item['shelfLocation'])
                 sku = sanitizeNumber(item['sku'])
+                # store sku in all remaining sku array
+                allRemainingSku.append(sku)
             except:
                 # push into not in auction if lot number not found in auction record
                 notInAuction.append({
@@ -1355,21 +1371,15 @@ def createRemainingRecord(request: HttpRequest):
                 }
                 unsoldItems.append(remainingItem)
 
-    # search for item not in remaining records but in auction record
-    jointAuc = targetAuctionTopRow + targetAuctionItemsArr
-    jointAuc_data = [aucItem for aucItem in jointAuc]
-    jointSold = soldTopRow + soldItems
-    jointSold_data = [{'sku': soldItem['sku']} for soldItem in jointSold]
-    jointUnsold = unsoldTopRow + unsoldItems
-    jointUnsold_data = [item for item in jointUnsold]
-    notInRemaining = []
+    # make auction sku array
+    auctionSkuList = [item['sku'] for item in targetAuctionItemsArr]
     
-    # loop arrays populate not in remaining
-    for item in jointAuc_data:
-        if item not in jointSold_data:
-            if item not in jointUnsold_data:
-                notInRemaining.append(item)
-
+    # populate not in remaining XLS array
+    notInRemaining = []
+    for sku in auctionSkuList:
+        if sku not in allRemainingSku:
+            notInRemaining.append([x for x in targetAuctionItemsArr if x['sku'] == sku ][0])
+    
     # construct remaining record info
     RemainingInfo = {
         'lot': lot_number,
@@ -1847,7 +1857,6 @@ def scrapeInfoBySkuAmazon(request: HttpRequest):
         return Response('Invalid URL, Not Amazon URL', status.HTTP_400_BAD_REQUEST)
 
     # get raw html and parse it with scrapy
-    # TODO: use 10 proxy service to incraese scraping speed
     payload = {
         'title': '',
         'msrp': '',
@@ -1865,7 +1874,7 @@ def scrapeInfoBySkuAmazon(request: HttpRequest):
      
         
     if 'Sorry, we just need to make sure you\'re not a robot' in str(response.body) or 'To discuss automated access to Amazon data please contact' in str(response.body):
-        raise Exception('Blocked by Amazon bot detection')
+        return Response('Blocked by Amazon bot detection', status.HTTP_502_BAD_GATEWAY)
     
     # try:
     payload['title'] = getTitle(response)

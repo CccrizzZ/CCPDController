@@ -181,10 +181,10 @@ def uploadScrapedImage(request: HttpRequest):
     # compress image size to 50 percent off
     img_bytes = io.BytesIO(res.content)
     # print(f'before compress: {len(img_bytes.read())}')
-    img = Image.open(img_bytes)
-    compressed_img = img.resize((img.width // 2, img.height // 2))
-    compressed_image_stream = io.BytesIO()
-    compressed_img.save(compressed_image_stream, format='JPEG', quality=50)
+    # img = Image.open(img_bytes)
+    # compressed_img = img.resize((img.width // 2, img.height // 2))
+    # compressed_image_stream = io.BytesIO()
+    # compressed_img.save(compressed_image_stream, format='JPEG', quality=50)
     # print(f'after compress: {len(compressed_image_stream.getvalue())}')
     
     # construct tags
@@ -202,7 +202,7 @@ def uploadScrapedImage(request: HttpRequest):
     else:
         imageName = f"{sku}/__{sku}_{sku}.{extension}"
     try:
-        res = product_image_container_client.upload_blob(imageName, compressed_image_stream.getvalue(), tags=inventory_tags)
+        res = product_image_container_client.upload_blob(imageName, img_bytes.getvalue(), tags=inventory_tags)
     except ResourceExistsError:
         return Response(imageName + ' Already Exist!', status.HTTP_409_CONFLICT)
     return Response('found', status.HTTP_200_OK)

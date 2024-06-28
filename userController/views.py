@@ -306,12 +306,12 @@ added because google is phasing out 3rd-party cookies around Q1 2025
 @api_view(['POST'])
 @permission_classes([IsQAPermission])
 def getUserRBACInfo(request: HttpRequest):
-    try:
-        body = decodeJSON(request.body)
-        email = sanitizeString(body['email']).lower()
-        fid = sanitizeString(body['fid']).lower()
-    except:
-        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    # try:
+    body = decodeJSON(request.body)
+    email = sanitizeString(body['email']).lower()
+    fid = sanitizeString(body['fid']).lower()
+    # except:
+    #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     # pull basic info from database
     res = user_collection.find_one(
@@ -320,7 +320,6 @@ def getUserRBACInfo(request: HttpRequest):
     )
     res['_id'] = str(res['_id'])
     
-    print(fid)
     addedId = user_collection.update_one(
         { 'email': email },
         {

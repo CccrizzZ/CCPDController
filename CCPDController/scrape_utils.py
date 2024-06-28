@@ -137,6 +137,7 @@ def getImageUrl(response):
     # use bs4 to extract src attribute of that img tag
     soup = BeautifulSoup(img, 'html.parser')
     src = soup.find('img')['src']
+    src = soup.find('img')['data-old-hires']
     return src
     # if img:
     #     http_pattern = re.compile(r'https?://\S+')
