@@ -22,5 +22,6 @@ urlpatterns = [
     path('createReturnRecord', views.createReturnRecord, name="createReturnRecord"),
     path('getProblematicRecords', views.getProblematicRecords, name="getProblematicRecords"),
     path('setProblematicBySku/<str:sku>', views.setProblematicBySku, name="setProblematicBySku"),
+    path('getAdminSettings', views.getAdminSettings, name="getAdminSettings"),
     path('updateAdminSettings', views.updateAdminSettings, name="updateAdminSettings"),
 ]

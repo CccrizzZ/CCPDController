@@ -1,4 +1,5 @@
 import email
+from django.http import HttpRequest
 import jwt
 import uuid
 import pymongo
@@ -38,6 +39,7 @@ inv_code_collection = db['Invitations']
 instock_collection = db['InstockInventory']
 retail_collection = db['Retail']
 return_collection = db['Return']
+admin_settings_collection = db['AdminSettings']
 
 # admin jwt token expiring time
 admin_expire_days = 90
@@ -47,7 +49,7 @@ admin_expire_days = 90
 @csrf_protect
 @api_view(['POST'])
 @permission_classes([IsAdminPermission])
-def checkAdminToken(request):
+def checkAdminToken(request: HttpRequest):
     # get token from cookie, token is 100% set because of permission
     token = request.COOKIES.get('token')
     
@@ -70,7 +72,7 @@ def checkAdminToken(request):
 @api_view(['POST'])
 @throttle_classes([AppIDThrottle])
 @permission_classes([AllowAny])
-def adminLogin(request):
+def adminLogin(request: HttpRequest):
     body = decodeJSON(request.body)
 
     # sanitize
@@ -130,7 +132,7 @@ User manager stuff
 @csrf_protect
 @api_view(['POST'])
 @permission_classes([IsSuperAdminPermission])
-def createUser(request):
+def createUser(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
         sanitizeUserInfoBody(body)
@@ -166,7 +168,7 @@ def createUser(request):
 # id: string
 @api_view(['DELETE'])
 @permission_classes([IsSuperAdminPermission])
-def deleteUserById(request):
+def deleteUserById(request: HttpRequest):
     try:
         # convert to BSON
         body = decodeJSON(request.body)
@@ -190,7 +192,7 @@ def deleteUserById(request):
 # body: UserDetail
 @api_view(['PUT'])
 @permission_classes([IsSuperAdminPermission])
-def updateUserById(request, uid):
+def updateUserById(request: HttpRequest, uid):
     try:
         # convert string to ObjectId
         userId = ObjectId(uid)
@@ -218,7 +220,7 @@ def updateUserById(request, uid):
 
 @api_view(['GET'])
 @permission_classes([IsAdminPermission])
-def getAllUserInfo(request):
+def getAllUserInfo(request: HttpRequest):
     userArr = []
     for item in user_collection.find({}, {'password': 0}):
         item['_id'] = str(item['_id'])
@@ -227,7 +229,7 @@ def getAllUserInfo(request):
 
 @api_view(['GET'])
 @permission_classes([IsAdminPermission])
-def getAllInvitationCode(request): 
+def getAllInvitationCode(request: HttpRequest): 
     codeArr = []
     for item in inv_code_collection.find({}, {'_id': 0}):
         codeArr.append(item)
@@ -236,7 +238,7 @@ def getAllInvitationCode(request):
 # admin generate invitation code for newly hired QA personal to join
 @api_view(['POST'])
 @permission_classes([IsSuperAdminPermission])
-def issueInvitationCode(request):
+def issueInvitationCode(request: HttpRequest):
     # generate a uuid for invitation code
     inviteCode = uuid.uuid4()
     expireTime = (datetime.now() + timedelta(days=1)).timestamp()
@@ -253,7 +255,7 @@ def issueInvitationCode(request):
 
 @api_view(['DELETE'])
 @permission_classes([IsSuperAdminPermission])
-def deleteInvitationCode(request):
+def deleteInvitationCode(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
         code = body['code']
@@ -271,7 +273,7 @@ def deleteInvitationCode(request):
 # get all distinct QA name in instock db
 @api_view(['POST'])
 @permission_classes([IsAdminPermission])
-def getInstockDistinct(request):
+def getInstockDistinct(request: HttpRequest):
     # try:
     body = decodeJSON(request.body)
     dist = sanitizeString(body['distinct'])
@@ -303,7 +305,7 @@ QA inventory stuff
 # }
 @api_view(['POST'])
 @permission_classes([IsAdminPermission])
-def getQARecordsByPage(request):
+def getQARecordsByPage(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
         sanitizeNumber(body['page'])
@@ -361,7 +363,7 @@ def getQARecordsByPage(request):
 
 @api_view(['DELETE'])
 @permission_classes([IsAdminPermission])
-def deleteQARecordsBySku(request, sku): 
+def deleteQARecordsBySku(request: HttpRequest, sku): 
     try:
         sku = sanitizeNumber(int(sku))
     except:
@@ -378,7 +380,7 @@ def deleteQARecordsBySku(request, sku):
 # sku: str
 @api_view(['POST'])
 @permission_classes([IsAdminPermission])
-def getQARecordBySku(request, sku):
+def getQARecordBySku(request: HttpRequest, sku):
     sku = int(sku)
     try:
         sanitizeNumber(sku)
@@ -397,7 +399,7 @@ def getQARecordBySku(request, sku):
 # itemsPerPage: str
 @api_view(['GET'])
 @permission_classes([IsAdminPermission])
-def getProblematicRecords(request):
+def getProblematicRecords(request: HttpRequest):
     arr = []
     for item in qa_collection.find({ 'problem': True }).sort('sku', pymongo.DESCENDING):
         item['_id'] = str(item['_id'])
@@ -409,7 +411,7 @@ def getProblematicRecords(request):
 # isProblem: bool
 @api_view(['PATCH'])
 @permission_classes([IsAdminPermission])
-def setProblematicBySku(request, sku):
+def setProblematicBySku(request: HttpRequest, sku):
     try:
         body = decodeJSON(request.body)
         sanitizeNumber(int(sku))
@@ -434,7 +436,7 @@ Retail and return stuff
 # itemsPerPage: number
 @api_view(['POST'])
 @permission_classes([IsAdminPermission])
-def getSalesRecordsByPage(request):
+def getSalesRecordsByPage(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
         currPage = sanitizeNumber(int(body['currPage']))
@@ -458,7 +460,7 @@ def getSalesRecordsByPage(request):
 # RetailRecord: RetailRecord
 @api_view(['POST'])
 @permission_classes([IsAdminPermission])
-def createSalesRecord(request):
+def createSalesRecord(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
         newRecord = RetailRecord (
@@ -485,7 +487,7 @@ def createSalesRecord(request):
 # one SKU could have multiple retail records with different info
 @api_view(['POST'])
 @permission_classes([IsAdminPermission])
-def getSalesRecordsBySku(request, sku):
+def getSalesRecordsBySku(request: HttpRequest, sku):
     try:
         sku = sanitizeNumber(int(sku))
     except:
@@ -505,14 +507,38 @@ def getSalesRecordsBySku(request, sku):
 # returnRecord: ReturnRecord
 @api_view(['POST'])
 @permission_classes([IsAdminPermission])
-def createReturnRecord(request):
+def createReturnRecord(request: HttpRequest):
     return Response('Return Record')
 
 
 '''
 Admin Settings's stuff
 '''
+@api_view(['GET'])
+@permission_classes([IsSuperAdminPermission])
+def getAdminSettings(request: HttpRequest):
+    res = admin_settings_collection.find_one({'type': 'adminSettings'}, {'_id': 0})
+    if not res:
+        return Response('Cannot Get Admin Settings', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return Response(res, status.HTTP_200_OK)
+    
 @api_view(['POST'])
 @permission_classes([IsSuperAdminPermission])
-def updateAdminSettings(request):
+def updateAdminSettings(request: HttpRequest):
+    try:
+        body = decodeJSON(request.body)
+        
+    except:
+        return Response('No Records Found', status.HTTP_404_NOT_FOUND)
+    
+    res = admin_settings_collection.update_one(
+        {'type': 'adminSettings'},
+        {
+            '$set':{
+                
+            }
+        }   
+    )
+    
+    
     return Response('Updated Admin Settings')
