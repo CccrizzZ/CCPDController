@@ -30,12 +30,16 @@ def generate_title(title, template) -> str:
 # full description
 def generate_description(condition, comment, description, template) -> str:
     if template == '':
+        # template = f"Please generate a product description in the format '{condition} - {description}', The character limit for Item information is 250 characters."
         template = "Please generate a product description in the format '[Item Condition] - [Item information]', The character limit for Item information is 250 characters."
+    else:
+        template = template + f" Item Condition: {condition}, {comment}. Item Information: {description}"
 
+    # call chat gpt using library
     res = client.chat.completions.create(
         messages=[
             { "role": "user", "content": f"Item Condition: {condition}, {comment}." },
-            { "role": "user", "content": f"Item information: {description}." },
+            { "role": "user", "content": f"Item Information: {description}." },
             { 
                 "role": "user", 
                 "content": template 
@@ -46,6 +50,7 @@ def generate_description(condition, comment, description, template) -> str:
         temperature=0.4
     )
     
+    # remove unnessesry     
     desc = res.choices[0].message.content.strip()
     desc = desc.replace("SAME", "")
     desc = desc.replace("SCANNED", "")

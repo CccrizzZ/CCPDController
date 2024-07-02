@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import os
 import json
+import re
 import firebase_admin._auth_client
 import pytz
 from pymongo import MongoClient
@@ -221,6 +222,11 @@ def sanitizeInvitationCode(code):
         return False
     return code
 
+def sanitizeArrayOfString(arr):
+    if all(isinstance(item, str) for item in arr):
+        return arr
+    else:
+        raise TypeError('Invalid Array of string')
 
 # these below will raise type error instead of returning false
 # make sure string is type str and no $ included 
@@ -437,3 +443,6 @@ def makeCSVRowFromItem(item):
         'Est': msrp if msrp > 0 else 'NA',
     }
     return row
+
+def getShelfLocationRegex(list):
+    return f"^({'|'.join(re.escape(item) for item in list)})"

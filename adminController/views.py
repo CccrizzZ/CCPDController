@@ -1,4 +1,5 @@
 import email
+from urllib import response
 from django.http import HttpRequest
 import jwt
 import uuid
@@ -17,10 +18,12 @@ from rest_framework.decorators import api_view, permission_classes, throttle_cla
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny
 from CCPDController.throttles import AppIDThrottle
-from CCPDController.permissions import  IsAdminPermission, IsSuperAdminPermission
+from CCPDController.permissions import  IsAdminPermission, IsQAPermission, IsSuperAdminPermission
 from CCPDController.utils import (
     decodeJSON,
-    get_db_client, 
+    get_db_client,
+    sanitizeArrayOfString,
+    sanitizeBoolean, 
     sanitizeEmail, 
     sanitizePassword, 
     sanitizeString, 
@@ -515,7 +518,7 @@ def createReturnRecord(request: HttpRequest):
 Admin Settings's stuff
 '''
 @api_view(['GET'])
-@permission_classes([IsSuperAdminPermission])
+@permission_classes([IsAdminPermission | IsQAPermission])
 def getAdminSettings(request: HttpRequest):
     res = admin_settings_collection.find_one({'type': 'adminSettings'}, {'_id': 0})
     if not res:
@@ -527,18 +530,22 @@ def getAdminSettings(request: HttpRequest):
 def updateAdminSettings(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
-        
+        setObject = {}
+        # deconstruct request and make $set obect for database action
+        if 'daysQACanDeleteRecord' in body:
+            setObject['daysQACanDeleteRecord'] = sanitizeNumber(int(body['daysQACanDeleteRecord']))
+        if 'isQAPermittedAfterHours' in body:
+            setObject['isQAPermittedAfterHours'] = sanitizeBoolean(bool(body['isQAPermittedAfterHours']))
+        if 'shelfLocationsDef' in body:
+            setObject['shelfLocationsDef'] = sanitizeArrayOfString(body['shelfLocationsDef'])
     except:
         return Response('No Records Found', status.HTTP_404_NOT_FOUND)
     
+    # update data to database
     res = admin_settings_collection.update_one(
         {'type': 'adminSettings'},
-        {
-            '$set':{
-                
-            }
-        }   
+        {'$set': setObject}
     )
-    
-    
-    return Response('Updated Admin Settings')
+    if not res:
+        return Response('Cannot Update Admin Settings', status.HTTP_500_INTERNAL_SERVER_ERROR)    
+    return Response('Updated Admin Settings', status.HTTP_200_OK)

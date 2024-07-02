@@ -4,6 +4,7 @@ from operator import index, le
 import os
 import pprint
 from re import L
+import re
 from django.http import HttpRequest
 from numpy import sort
 import requests
@@ -18,7 +19,7 @@ from CCPDController.utils import (
     convertToAmountPerDayData, decodeJSON, 
     get_db_client, getBlobTimeString, 
     getIsoFormatInv, 
-    getNDayBeforeToday, getTimeRangeFil, makeCSVRowFromItem, 
+    getNDayBeforeToday, getShelfLocationRegex, getTimeRangeFil, makeCSVRowFromItem, 
     populateSetData, sanitizeBoolean, 
     sanitizeNumber, 
     sanitizeSku, 
@@ -63,6 +64,7 @@ user_collection = db['User']
 auction_collection = db['AuctionHistory']
 restock_collection = db['RestockRecords']
 remaining_collection = db['RemainingHistory']
+admin_settings_collection = db['AdminSettings']
 ua = UserAgent()
 
 
@@ -220,13 +222,14 @@ def getQAInfoByOwnerName(request: HttpRequest):
         past7DaysCounter[date] += 1
     return Response({'pieData': dict(itemCount), 'barData': dict(past7DaysCounter)}, status.HTTP_200_OK)
 
-# create single inventory Q&A record
+# create Q&A inventory record
 @api_view(['PUT'])
 @permission_classes([IsQAPermission | IsAdminPermission])
 def createInventory(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
         sku = sanitizeNumber(body['sku'])
+        shelfLocation = sanitizeString(body['shelfLocation'])
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
 
@@ -234,8 +237,21 @@ def createInventory(request: HttpRequest):
     inv = qa_collection.find_one({'sku': body['sku']})
     if inv:
         return Response('SKU Already Existed', status.HTTP_409_CONFLICT)
+    
+    # check if shelf location matches admin requirements
+    locationArr = admin_settings_collection.find_one(
+        {'type': 'adminSettings'},
+        {'_id': 0, 'shelfLocationsDef': 1}
+    )
+
+    
+    if not bool(re.match(getShelfLocationRegex(locationArr['shelfLocationsDef']), shelfLocation)):
+        return Response('Shelf Location Invalid', status.HTTP_400_BAD_REQUEST)
+    else:
+        return Response('Inventory Created', status.HTTP_200_OK)
+    
+    # construct new inventory
     try:
-        # construct new inventory
         newInventory = InventoryItem(
             time = getIsoFormatNow(),
             sku = sku,
@@ -243,7 +259,7 @@ def createInventory(request: HttpRequest):
             comment = body['comment'],
             link = body['link'],
             platform = body['platform'],
-            shelfLocation = body['shelfLocation'],
+            shelfLocation = shelfLocation,
             amount = body['amount'],
             owner = body['owner'],
             ownerName = body['ownerName'],
@@ -1876,25 +1892,25 @@ def scrapeInfoBySkuAmazon(request: HttpRequest):
     if 'Sorry, we just need to make sure you\'re not a robot' in str(response.body) or 'To discuss automated access to Amazon data please contact' in str(response.body):
         return Response('Blocked by Amazon bot detection', status.HTTP_502_BAD_GATEWAY)
     
-    # try:
-    payload['title'] = getTitle(response)
-    # except:
-    #     return Response('Failed to Get Title', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    try:
+        payload['title'] = getTitle(response)
+    except:
+        return Response('Failed to Get Title', status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    # try:
-    payload['msrp'] = getMsrp(response)
-    # except:
-    #     return Response('Failed to Get MSRP', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    try:
+        payload['msrp'] = getMsrp(response)
+    except:
+        return Response('Failed to Get MSRP', status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    # try:
-    payload['imgUrl'] = getImageUrl(response)
-    # except:
-    #     return Response('No Image URL Found', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    try:
+        payload['imgUrl'] = getImageUrl(response)
+    except:
+        return Response('No Image URL Found', status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    # try:
-    payload['currency'] = getCurrency(response)
-    # except:
-    #     return Response('No Currency Info Found', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    try:
+        payload['currency'] = getCurrency(response)
+    except:
+        return Response('No Currency Info Found', status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response(payload, status.HTTP_200_OK)
 
 # return msrp from home depot for given sku
