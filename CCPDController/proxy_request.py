@@ -1,9 +1,14 @@
+import asyncio
 import os
+from socket import timeout
+from warnings import catch_warnings
+import aiohttp
 import requests
 import random
-import time
+from random import choice
 from fake_useragent import UserAgent
 ua = UserAgent()
+
 
 # these are the proxies from 
 proxies_list = [
@@ -126,9 +131,10 @@ def getRandomHeader():
         'Accept-Language':  random.choice(accepted_language),
     }
 
+# srape url with 1 proxy
 def request_with_proxy(url):
     # select random proxy from the list
-    proxy_ip = random.choice(proxies_list)
+    proxy_ip = choice(proxies_list)
     proxy = f"http://{os.getenv('WEBSHARE_USERNAME')}:{os.getenv('WEBSHARE_PASSWORD')}@{proxy_ip}"
     proxies = {
         "http": proxy,
@@ -145,3 +151,33 @@ def request_with_proxy(url):
         headers=getRandomHeader()
     )
     return response
+
+# srape url with 1 proxy
+async def request_with_proxy(session: aiohttp.ClientSession, url: str, proxy: str):
+    try:
+        proxy = f"http://{os.getenv('WEBSHARE_USERNAME')}:{os.getenv('WEBSHARE_PASSWORD')}@{choice(proxies_list)}"
+        async with session.get(url, proxy=proxy, timeout=10, headers=getRandomHeader()) as res:
+            if res.status == 200:
+                data = await res.text
+                return data
+            else:
+                return None
+    except:
+        return None
+
+# parallel srape url with 3 proxy
+async def parallelRequest(url):
+    async with aiohttp.ClientSession() as session:
+        while True:
+            # populate task
+            tasks = []
+            for _ in range(3):
+                proxy_ip = choice(proxies_list)
+                task = asyncio.create_task(request_with_proxy(session, url, proxy_ip))
+                tasks.append(task)
+            
+            # execute task parallel
+            responsesArr = await asyncio.gather(*tasks)
+            for res in responsesArr:
+                if res is not None:
+                    return res

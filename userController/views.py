@@ -306,34 +306,34 @@ added because google is phasing out 3rd-party cookies around Q1 2025
 @api_view(['POST'])
 @permission_classes([IsQAPermission])
 def getUserRBACInfo(request: HttpRequest):
-    # try:
-    body = decodeJSON(request.body)
-    email = sanitizeString(body['email']).lower()
-    fid = sanitizeString(body['fid']).lower()
-    # except:
-    #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    try:
+        body = decodeJSON(request.body)
+        email = sanitizeString(body['email']).lower()
+        # fid = sanitizeString(body['fid']).lower()
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     # pull basic info from database
     res = user_collection.find_one(
         { 'email': email },
         { 'name': 1, 'role': 1 }
     )
+    
+    # return id as string instead of objectId
     res['_id'] = str(res['_id'])
-    
-    addedId = user_collection.update_one(
-        { 'email': email },
-        {
-            '$set':{
-                'fid': fid
-            }
-        }
-    )
-    
-    
     if not res:
         return Response(f'No Such User {email}', status.HTTP_404_NOT_FOUND)
     if res['role'] != 'QAPersonal':
         return Response('User is Not QA Personal', status.HTTP_403_FORBIDDEN)
+    
+    # addedId = user_collection.update_one(
+    #     { 'email': email },
+    #     {
+    #         '$set':{
+    #             'fid': fid
+    #         }
+    #     }
+    # )
     return Response(res, status.HTTP_200_OK)
 
 # for admin and super admin personal firebase authentication

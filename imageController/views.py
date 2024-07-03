@@ -31,11 +31,11 @@ qa_collection = db['Inventory']
 @api_view(['POST'])
 @permission_classes([IsQAPermission | IsAdminPermission])
 def getUrlsByOwner(request: HttpRequest):
-    # try:
-    body = decodeJSON(request.body)
-    sanitizeString(body['ownerName'])
-    # except:
-    #     return Response('Invalid Owner', status.HTTP_400_BAD_REQUEST)
+    try:
+        body = decodeJSON(request.body)
+        sanitizeString(body['ownerName'])
+    except:
+        return Response('Invalid Owner', status.HTTP_400_BAD_REQUEST)
     
     # format: 2024-02-06
     # filter image created within 2 days
@@ -45,8 +45,6 @@ def getUrlsByOwner(request: HttpRequest):
     owner = "\"ownerName\"='" + body['ownerName'] + "'"
     query = owner + " AND " + time
     
-    print(query)
-    
     # collection of blobs
     blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=query)
     
@@ -54,7 +52,6 @@ def getUrlsByOwner(request: HttpRequest):
     for blob in blob_list:
         blob_client = product_image_container_client.get_blob_client(blob.name)
         arr.append(blob_client.url)
-    print(arr)
     return Response(arr, status.HTTP_200_OK)
 
 # sku: str
@@ -113,7 +110,8 @@ def uploadImage(request: HttpRequest, ownerId, owner, sku):
     for name, value in request.FILES.items():
         # images will be uploaded to the folder named after their sku
         img = value
-        imageName = f'_{sku}/{sku}_{name}.jpg'
+        # imageName = f'{sku}/_{sku}_{name}.jpg'
+        imageName = f'{sku}/{sku}_{name}.jpg'
         
         # process apples photo format
         if 'heic' in name or 'HEIC' in name:
@@ -130,7 +128,8 @@ def uploadImage(request: HttpRequest, ownerId, owner, sku):
             img = buf.getvalue()
             # change extension to jpg
             base_name = os.path.splitext(name)[0]
-            imageName = f'_{sku}/{base_name}.jpg'
+            # imageName = f'{sku}/_{base_name}.jpg'
+            imageName = f'{sku}/{base_name}.jpg'
         try:
             res = product_image_container_client.upload_blob(imageName, img, tags=inventory_tags)
             if not res: 
@@ -143,9 +142,12 @@ def uploadImage(request: HttpRequest, ownerId, owner, sku):
 @api_view(['DELETE'])
 @permission_classes([IsQAPermission | IsAdminPermission])
 def deleteImageByName(request: HttpRequest):
-    body = decodeJSON(request.body)
-    sku = sanitizeNumber(int(body['sku']))
-    name = sanitizeString(body['name'])
+    try:
+        body = decodeJSON(request.body)
+        sku = sanitizeString(body['sku'])
+        name = sanitizeString(body['name'])
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     
     # azure automatically unquote all % in url
     imageName = parse.unquote(f'{str(sku)}/{name.split('?')[0]}')

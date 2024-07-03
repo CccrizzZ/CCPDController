@@ -12,7 +12,7 @@ import scrapy
 from scrapy.http import HtmlResponse
 from datetime import datetime, timedelta
 import xlrd
-from CCPDController.proxy_request import request_with_proxy
+from CCPDController.proxy_request import parallelRequest, request_with_proxy
 from inventoryController.models import AuctionItem, AuctionRecord, InstockInventory, InventoryItem
 from CCPDController.scrape_utils import extract_urls, getCurrency, getImageUrl, getMsrp, getTitle
 from CCPDController.utils import (
@@ -156,7 +156,10 @@ def getInventoryByOwnerName(request: HttpRequest):
     # get all qa inventory
     # default item per page is 10
     skip = currPage * 10
-    res = qa_collection.find({ 'ownerName': name }, { '_id': 0 }).sort('time', pymongo.DESCENDING).skip(skip).limit(10)
+    res = qa_collection.find(
+        { 'ownerName': name }, 
+        { '_id': 0 }
+    ).sort('time', pymongo.DESCENDING).skip(skip).limit(10)
     if not res:
         return Response('No Inventory Found', status.HTTP_200_OK)
     
@@ -164,7 +167,6 @@ def getInventoryByOwnerName(request: HttpRequest):
     arr = []
     for item in res:
         arr.append(item)
- 
     return Response(arr, status.HTTP_200_OK)
 
 # get bar charts and pie charts data for my inventory page in qa app
@@ -226,12 +228,14 @@ def getQAInfoByOwnerName(request: HttpRequest):
 @api_view(['PUT'])
 @permission_classes([IsQAPermission | IsAdminPermission])
 def createInventory(request: HttpRequest):
-    try:
-        body = decodeJSON(request.body)
-        sku = sanitizeNumber(body['sku'])
-        shelfLocation = sanitizeString(body['shelfLocation'])
-    except:
-        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    # try:
+    body = decodeJSON(request.body)
+    sku = sanitizeNumber(body['sku'])
+    shelfLocation = sanitizeString(body['shelfLocation'])
+    print(body['owner'])
+    print(body['ownerName'])
+    # except:
+    #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
 
     # if sku exist return conflict
     inv = qa_collection.find_one({'sku': body['sku']})
@@ -243,34 +247,44 @@ def createInventory(request: HttpRequest):
         {'type': 'adminSettings'},
         {'_id': 0, 'shelfLocationsDef': 1}
     )
-
     
     if not bool(re.match(getShelfLocationRegex(locationArr['shelfLocationsDef']), shelfLocation)):
         return Response('Shelf Location Invalid', status.HTTP_400_BAD_REQUEST)
-    else:
-        return Response('Inventory Created', status.HTTP_200_OK)
     
     # construct new inventory
-    try:
-        newInventory = InventoryItem(
-            time = getIsoFormatNow(),
-            sku = sku,
-            itemCondition = body['itemCondition'],
-            comment = body['comment'],
-            link = body['link'],
-            platform = body['platform'],
-            shelfLocation = shelfLocation,
-            amount = body['amount'],
-            owner = body['owner'],
-            ownerName = body['ownerName'],
-            marketplace = body['marketplace']
-        )
-        # pymongo need dict or bson object
-        qa_collection.insert_one(newInventory.__dict__)
-    except:
-        return Response('Invalid Inventory Information', status.HTTP_400_BAD_REQUEST)
+    # try:
+    newInventory = InventoryItem(
+        time = getIsoFormatNow(),
+        sku = sku,
+        itemCondition = body['itemCondition'],
+        comment = body['comment'],
+        link = body['link'],
+        platform = body['platform'],
+        shelfLocation = shelfLocation,
+        amount = body['amount'],
+        owner = body['owner'],
+        ownerName = body['ownerName'],
+        marketplace = body['marketplace']
+    )
+    # pymongo need dict or bson object
+    qa_collection.insert_one(newInventory.__dict__)
+    # except:
+    #     return Response('Invalid Inventory Information', status.HTTP_400_BAD_REQUEST)
     return Response('Inventory Created', status.HTTP_200_OK)
 
+# add scraped data to database
+@api_view(['POST'])
+@permission_classes([IsQAPermission | IsAdminPermission])
+def scrapeIntoDb(request: HttpRequest):
+    try:
+        body = decodeJSON(request.body)
+        url = sanitizeString(body['url'])
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    res = parallelRequest(url)
+    return Response('Success', status.HTTP_200_OK)
+    
+    
 # update qa record by sku
 # sku: string
 # newInventory: Inventory

@@ -445,4 +445,4 @@ def makeCSVRowFromItem(item):
     return row
 
 def getShelfLocationRegex(list):
-    return f"^({'|'.join(re.escape(item) for item in list)})"
+    return f"^({'|'.join(re.escape(item) for item in list)})[0-9].*"
