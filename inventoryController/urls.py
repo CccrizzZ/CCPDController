@@ -44,6 +44,7 @@ urlpatterns = [
     path("updateItemInAuction", views.updateItemInAuction, name="updateItemInAuction"),
     path("addSelectionToAuction", views.addSelectionToAuction, name="addSelectionToAuction"),
     # scraping function
+    path("scrapeIntoDb", views.scrapeIntoDb, name="scrapeIntoDb"),
     path("generateDescriptionBySku", views.generateDescriptionBySku, name="generateDescriptionBySku"),
     path("scrapeInfoBySkuAmazon", views.scrapeInfoBySkuAmazon, name="scrapeInfoBySkuAmazon"),
     path("scrapePriceBySkuHomeDepot", views.scrapePriceBySkuHomeDepot, name="scrapePriceBySkuHomeDepot"),

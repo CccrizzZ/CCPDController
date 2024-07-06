@@ -45,7 +45,8 @@ INSTALLED_APPS = [
     'imageController',
     'inventoryController',
     'userController',
-    'adminController'
+    'adminController',
+    'adrf',
 ]
 
 MIDDLEWARE = [
@@ -113,7 +114,7 @@ CSRF_COOKIE_HTTPONLY = True
 CSRF_TRUSTED_ORIGINS = [
     # 'http://172.18.208.1',
     # 'https://172.18.208.1',
-    # "http://localhost",
+    "http://localhost:8080",
     # "https://localhost",
     # "http://142.126.96.24",
     # "https://142.126.96.24",

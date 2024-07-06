@@ -296,6 +296,7 @@ def getAllActiveQAPersonal(request: HttpRequest):
     arr = []
     for u in res:
         arr.append(u['name'])
+    res.close()
     return Response(arr, status.HTTP_200_OK)
 
 '''

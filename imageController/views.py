@@ -104,7 +104,7 @@ def uploadImage(request: HttpRequest, ownerId, owner, sku):
     }
     
     if len(request.FILES) < 1:
-        return Response('No images to upload', status.HTTP_200_OK)
+        return Response('No images to upload', status.HTTP_404_NOT_FOUND)
     res = {}
     # loop the files in the request
     for name, value in request.FILES.items():
@@ -144,8 +144,8 @@ def uploadImage(request: HttpRequest, ownerId, owner, sku):
 def deleteImageByName(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
-        sku = sanitizeString(body['sku'])
-        name = sanitizeString(body['name'])
+        sku = sanitizeString(str(body['sku']))
+        name = sanitizeString(str(body['name']))
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     

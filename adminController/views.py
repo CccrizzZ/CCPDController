@@ -225,17 +225,21 @@ def updateUserById(request: HttpRequest, uid):
 @permission_classes([IsAdminPermission])
 def getAllUserInfo(request: HttpRequest):
     userArr = []
-    for item in user_collection.find({}, {'password': 0}):
+    cursor = user_collection.find({}, {'password': 0})
+    for item in cursor:
         item['_id'] = str(item['_id'])
         userArr.append(item)
+    cursor.close()
     return Response(userArr, status.HTTP_200_OK)
 
 @api_view(['GET'])
 @permission_classes([IsAdminPermission])
 def getAllInvitationCode(request: HttpRequest): 
     codeArr = []
-    for item in inv_code_collection.find({}, {'_id': 0}):
+    cursor = inv_code_collection.find({}, {'_id': 0})
+    for item in cursor:
         codeArr.append(item)
+    cursor.close()
     return Response(codeArr, status.HTTP_200_OK)
 
 # admin generate invitation code for newly hired QA personal to join
@@ -356,6 +360,7 @@ def getQARecordsByPage(request: HttpRequest):
         for inventory in query:
                 inventory['_id'] = str(inventory['_id'])
                 arr.append(inventory)
+        query.close()
                 
         # if pulled array empty return no content
         if len(arr) == 0:
@@ -404,10 +409,11 @@ def getQARecordBySku(request: HttpRequest, sku):
 @permission_classes([IsAdminPermission])
 def getProblematicRecords(request: HttpRequest):
     arr = []
-    for item in qa_collection.find({ 'problem': True }).sort('sku', pymongo.DESCENDING):
+    cursor = qa_collection.find({ 'problem': True }).sort('sku', pymongo.DESCENDING)
+    for item in cursor:
         item['_id'] = str(item['_id'])
         arr.append(item)
-    
+    cursor.close()
     return Response(arr, status.HTTP_200_OK)
 
 # set problem to true for qa records
@@ -449,10 +455,12 @@ def getSalesRecordsByPage(request: HttpRequest):
     
     arr = []
     skip = currPage * itemsPerPage
-    for record in retail_collection.find().sort('sku', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage']):
+    cursor = retail_collection.find().sort('sku', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
+    for record in cursor:
         # convert ObjectId
         record['_id'] = str(record['_id'])
         arr.append(record)
+    cursor.close()
 
     # if pulled array empty return no content
     if len(arr) == 0:
@@ -498,12 +506,14 @@ def getSalesRecordsBySku(request: HttpRequest, sku):
     
     # get all sales records associated with this sku
     arr = []
-    for inventory in retail_collection.find({'sku': sku}):
+    cursor = retail_collection.find({'sku': sku})
+    for inventory in cursor:
         # convert ObjectId to string prevent error
         inventory['_id'] = str(inventory['_id'])
         arr.append(inventory)
     if len(arr) < 1:
         return Response('No Records Found', status.HTTP_404_NOT_FOUND)
+    cursor.close()
     return Response(arr, status.HTTP_200_OK)
 
 # retailRecordId: string

@@ -1,18 +1,12 @@
-from email.mime import image
 import io
-from operator import index, le
 import os
-import pprint
-from re import L
 import re
 from django.http import HttpRequest
-from numpy import sort
 import requests
-import scrapy
 from scrapy.http import HtmlResponse
 from datetime import datetime, timedelta
 import xlrd
-from CCPDController.proxy_request import parallelRequest, request_with_proxy
+from CCPDController.proxy_request import parallelRequest, request_with_proxy, request_with_proxy_admin
 from inventoryController.models import AuctionItem, AuctionRecord, InstockInventory, InventoryItem
 from CCPDController.scrape_utils import extract_urls, getCurrency, getImageUrl, getMsrp, getTitle
 from CCPDController.utils import (
@@ -31,7 +25,6 @@ from CCPDController.utils import (
     full_iso_format,
     findObjectInArray,
     product_image_container_client,
-    inv_iso_format,
     processInstock,
     azure_blob_client
 )
@@ -48,6 +41,8 @@ import pymongo
 import pandas as pd
 from bs4 import BeautifulSoup
 import random
+from django.views.decorators.csrf import csrf_exempt
+from adrf.decorators import api_view as adrf_view
 
 # append this in front of description for item msrp lte 80$
 desc_under_80 = 'READ NEW TERMS OF USE BEFORE YOU BID!'
@@ -112,9 +107,11 @@ def getInventoryByOwnerId(request: HttpRequest, page):
     # return all inventory from owner in array
     arr = []
     skip = page * limit
-    for inventory in qa_collection.find({ 'owner': ownerId }).sort('sku', pymongo.DESCENDING).skip(skip).limit(limit):
+    cursor = qa_collection.find({ 'owner': ownerId }).sort('sku', pymongo.DESCENDING).skip(skip).limit(limit)
+    for inventory in cursor:
         inventory['_id'] = str(inventory['_id'])
         arr.append(inventory)
+    cursor.close()
     return Response(arr, status.HTTP_200_OK)
 
 # for charts and overview data
@@ -134,6 +131,7 @@ def getInventoryInfoByOwnerId(request: HttpRequest):
     for inventory in cursor:
         # inventory['_id'] = str(inventory['_id'])
         arr.append(inventory['itemCondition'])
+    cursor.close()
     
     itemCount = Counter()
     for condition in arr:
@@ -167,6 +165,7 @@ def getInventoryByOwnerName(request: HttpRequest):
     arr = []
     for item in res:
         arr.append(item)
+    res.close()
     return Response(arr, status.HTTP_200_OK)
 
 # get bar charts and pie charts data for my inventory page in qa app
@@ -190,6 +189,7 @@ def getQAInfoByOwnerName(request: HttpRequest):
     # make inventory array
     for inventory in con:
         arr.append(inventory['itemCondition'])
+    con.close()
     itemCount = Counter()
     for condition in arr:
         itemCount[condition] += 1
@@ -213,7 +213,7 @@ def getQAInfoByOwnerName(request: HttpRequest):
     past7DaysArr = []
     for inventory in past7Days:
         past7DaysArr.append(inventory)
-    
+    past7Days.close()
     # populate date keys first, to include days with zero inventory
     all7Dates = [(datetime.fromisoformat(startTime) + timedelta(days=i)).strftime('%Y-%m-%d') for i in range(8)]
     past7DaysCounter = Counter({date: 0 for date in all7Dates})
@@ -228,14 +228,12 @@ def getQAInfoByOwnerName(request: HttpRequest):
 @api_view(['PUT'])
 @permission_classes([IsQAPermission | IsAdminPermission])
 def createInventory(request: HttpRequest):
-    # try:
-    body = decodeJSON(request.body)
-    sku = sanitizeNumber(body['sku'])
-    shelfLocation = sanitizeString(body['shelfLocation'])
-    print(body['owner'])
-    print(body['ownerName'])
-    # except:
-    #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+    try:
+        body = decodeJSON(request.body)
+        sku = sanitizeNumber(body['sku'])
+        shelfLocation = sanitizeString(body['shelfLocation'])
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
 
     # if sku exist return conflict
     inv = qa_collection.find_one({'sku': body['sku']})
@@ -272,17 +270,64 @@ def createInventory(request: HttpRequest):
     #     return Response('Invalid Inventory Information', status.HTTP_400_BAD_REQUEST)
     return Response('Inventory Created', status.HTTP_200_OK)
 
-# add scraped data to database
-@api_view(['POST'])
+# add scraped data to qa database record upon QA submission
+@csrf_exempt
+@adrf_view(['POST'])
 @permission_classes([IsQAPermission | IsAdminPermission])
-def scrapeIntoDb(request: HttpRequest):
+async def scrapeIntoDb(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
         url = sanitizeString(body['url'])
+        sku = sanitizeNumber(int(body['sku']))
+        if url == "" or url == "No Link":
+            return Response('Invalid Body', status.HTTP_200_OK)
     except:
-        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
-    res = parallelRequest(url)
-    return Response('Success', status.HTTP_200_OK)
+        return Response('Invalid Body', status.HTTP_200_OK)
+    
+    # return error if not amazon link or not http
+    if 'https' not in url and '.ca' not in url and '.com' not in url:
+        return Response('Invalid URL', status.HTTP_200_OK)
+    elif 'a.co' not in url and 'amazon' not in url and 'amzn' not in url:
+        return Response('Invalid URL, Not Amazon URL', status.HTTP_200_OK)
+    
+    
+    # send parallel request
+    # try:
+    res = await parallelRequest(url)
+    # except:
+        # return Response('Cannot Scrape', status.HTTP_200_OK)
+    # extract link with regex
+
+    # blocked by amazon
+    if 'Sorry, we just need to make sure you\'re not a robot' in str(res.body) or 'To discuss automated access to Amazon data please contact' in str(res.body):
+        return Response('Blocked by Amazon bot detection', status.HTTP_200_OK)
+    
+    # get raw html and parse it with scrapy
+    payload = {
+        'title': '',
+        'msrp': '',
+        'imgUrl': '',
+        'currency':''
+    }
+    
+    try:
+        payload['title'] = getTitle(res)
+        payload['msrp'] = getMsrp(res)
+        payload['imgUrl'] = getImageUrl(res)
+        payload['currency'] = getCurrency(res)
+    except:
+        return Response('Failed to Get Data', status.HTTP_200_OK)
+
+    # push to db if result
+    qa_collection.update_one(
+        { 'sku': sku },
+        {
+            '$set': {
+                'scrapedData': payload
+            }
+        }
+    )
+    return Response(payload, status.HTTP_200_OK)
     
     
 # update qa record by sku
@@ -414,8 +459,8 @@ def updateInventoryBySku(request: HttpRequest, sku: str):
 def deleteInventoryBySku(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
-        sku = sanitizeSku(body['sku'])
-        time = sanitizeString(body['time'])
+        sku = sanitizeNumber(int(body['sku']))
+        time = sanitizeString(str(body['time']))
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
     if not sku:
@@ -442,14 +487,13 @@ def deleteInventoryBySku(request: HttpRequest):
         qa_collection.delete_one({'sku': sku, 'time': time})
         
         # list blob by sku
-        tag_filter = "sku = '" + str(sku) + "'"
+        tag_filter = f"sku = '{str(sku)}'"
         blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=tag_filter)
 
         # delete each blob 
         try:
             for blob in blob_list:
-                blob_name = blob.name
-                product_image_container_client.delete_blob(blob_name)
+                product_image_container_client.delete_blob(blob.name)
         except:
             return Response('Failed to Delete', status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response('Inventory Deleted', status.HTTP_200_OK)
@@ -471,13 +515,14 @@ def getAllQAShelfLocations(request: HttpRequest):
 def getDailyQARecordData(request: HttpRequest):
     # get owners of qa record in 7 days time range
     time = datetime.now() - timedelta(days=7)
-    owners = qa_collection.find({
+    cursor = qa_collection.find({
         'time': {
             '$gte': time.replace(hour=0, minute=0, second=0, microsecond=0).strftime(full_iso_format),
             '$lt': datetime.now().replace(hour=23, minute=59, second=59, microsecond=999999).strftime(full_iso_format)        
         }
-    }).distinct('ownerName')
-
+    })
+    owners = cursor.distinct('ownerName')
+    
     # for all owner get past 7days qa record count array
     res = []
     dates = []
@@ -497,6 +542,7 @@ def getDailyQARecordData(request: HttpRequest):
             if len(dates) < days:
                 dates.append(f'{times.month}/{times.day}')
         res.append({owner: counts})
+    cursor.close()
     return Response({'res': res, 'dates': dates})
 
 # get todays shelf location sheet by user name
@@ -521,6 +567,7 @@ def getShelfSheetByUser(request: HttpRequest):
     arr = []
     for item in res:
         arr.append(item)
+    res.close()
     return Response(arr, status.HTTP_200_OK)
 
 # get end of the day shelf location sheet for all records submitted today
@@ -542,11 +589,12 @@ def getAllShelfSheet(request: HttpRequest):
     ).sort('shelfLocation', pymongo.ASCENDING)
     if not res:
         return Response('No Record Found', status.HTTP_404_NOT_FOUND)
-
+    
     # load results into array
     arr = []
     for item in res:
         arr.append(item)
+    res.close()
     if len(arr) < 1:
         return Response('No Records Found', status.HTTP_404_NOT_FOUND)
     
@@ -562,6 +610,7 @@ def getAllShelfSheet(request: HttpRequest):
     response['Content-Disposition'] = 'attachment; filename="shelfSheet.csv"'
     return response
 
+# if item was returned, a new instock record will be created, old record remains out-of-stock
 @api_view(['POST'])
 @permission_classes([IsQAPermission])
 def restock(request: HttpRequest):
@@ -631,6 +680,7 @@ def restock(request: HttpRequest):
         return Response('Failed to Insert Re-stock Record', status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response(f'Re-stocked {oldSku} to {newSku}', status.HTTP_200_OK)
 
+
 '''
 In-stock stuff
 '''
@@ -672,6 +722,7 @@ def getInstockByPage(request: HttpRequest):
     for inventory in query:
         inventory['_id'] = str(inventory['_id'])
         arr.append(inventory)
+    query.close()
     
     # if pulled array empty return no content
     if len(arr) == 0:
@@ -690,6 +741,7 @@ def getInstockByPage(request: HttpRequest):
     chart_arr = []
     for item in res:
         chart_arr.append(item)
+    res.close()
     output = convertToAmountPerDayData(chart_arr)
     # except:
     #     return Response(chart_arr, status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -871,6 +923,7 @@ def getAbnormalInstockInventory(request: HttpRequest):
     arr = []
     for item in res:
         arr.append(item)
+    res.close()
     return Response([], status.HTTP_200_OK)
 
 
@@ -994,10 +1047,12 @@ def getAuctionRemainingRecord(request: HttpRequest):
     auctions = []
     for item in res:
         auctions.append(item)
+    res.close()
     res = remaining_collection.find({}, { '_id': 0 }).sort({ 'timeClosed': -1 })
     remaining = []
     for item in res:
         remaining.append(item)
+    res.close()
     return Response({'auctions': auctions, 'remaining': remaining}, status.HTTP_200_OK)
 
 @api_view(['POST'])
@@ -1111,7 +1166,8 @@ def createAuctionRecord(request: HttpRequest):
     # loading mongo result into itemsArr with or without duplicating items
     itemsArr = processInstock(itemsArr, instock, duplicate)
     count = len(itemsArr)
-
+    instock.close()
+    
     # append item lot number on to the object
     itemLotNumbersArr = []
     for x in range(itemLotStart, itemLotStart + count + 1):
@@ -1579,6 +1635,7 @@ def addSelectionToAuction(request: HttpRequest):
     ).sort({ 'msrp': -1 })
     # populate instock array for selected items
     itemsArr = processInstock(itemsArr, instock, duplicate, auction['itemsArr'])
+    instock.close()
     
     # count howmany items selected
     count = len(itemsArr)
@@ -1643,8 +1700,12 @@ def addSelectionToAuction(request: HttpRequest):
 @permission_classes([IsAdminPermission])
 def getRemainingLotNumbers(request: HttpRequest):
     # grab remaining record if unsold items exist
-    res = remaining_collection.find({}, { '_id': 0, 'lot': 1, 'unsoldCount': { '$gt': 0 }}).distinct('lot')
-    arr= []
+    cursor = remaining_collection.find({}, { '_id': 0, 'lot': 1, 'unsoldCount': { '$gt': 0 }})
+    res = cursor.distinct('lot')
+    cursor.close()
+    
+    # pull all remaining lot
+    arr = []
     for item in res:
         arr.append(item)
     arr.sort(reverse=True)
@@ -1654,7 +1715,9 @@ def getRemainingLotNumbers(request: HttpRequest):
 @permission_classes([IsAdminPermission])
 def getAuctionLotNumbers(request: HttpRequest):
     # grab remaining record if unsold items exist
-    res = auction_collection.find({}, { '_id': 0, 'lot': 1}).distinct('lot')
+    cursor = auction_collection.find({}, { '_id': 0, 'lot': 1})
+    res = cursor.distinct('lot')
+    cursor.close()
     arr= []
     for item in res:
         arr.append(item)
@@ -1872,7 +1935,7 @@ def scrapeInfoBySkuAmazon(request: HttpRequest):
         sku = sanitizeNumber(int(body['sku']))
     except:
         return Response('Invalid SKU', status.HTTP_400_BAD_REQUEST)
-        
+    
     # find target inventory
     target = qa_collection.find_one({ 'sku': sku })
     if not target:
@@ -1894,14 +1957,16 @@ def scrapeInfoBySkuAmazon(request: HttpRequest):
         'currency':''
     }
     
-    # webdriver
-    # res = webDriverGet(link)
+    # # request the raw html from Amazon
+    # headers = {
+    #     'User-Agent': f'user-agent={ua.random}',
+    #     'Accept-Language': 'en-US,en;q=0.9',
+    # }
     
-    # request the raw html from Amazon
     # rawHTML = requests.get(url=link, headers=headers).text
-    rawHTML = request_with_proxy(link).text
-    response = HtmlResponse(url=link, body=rawHTML, encoding='utf-8')
-     
+    # rawHTML = request_with_proxy(link).text
+    response = request_with_proxy_admin(link)
+    # response = HtmlResponse(url=link, body=rawHTML, encoding='utf-8')
         
     if 'Sorry, we just need to make sure you\'re not a robot' in str(response.body) or 'To discuss automated access to Amazon data please contact' in str(response.body):
         return Response('Blocked by Amazon bot detection', status.HTTP_502_BAD_GATEWAY)
@@ -2153,4 +2218,5 @@ def fillPlatform(request: HttpRequest):
         )
         if res:
             print(time)
+    res.close()
     return Response('Platform Filled', status.HTTP_200_OK)
