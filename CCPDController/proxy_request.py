@@ -8,8 +8,7 @@ from random import choice
 from fake_useragent import UserAgent
 ua = UserAgent()
 
-
-# these are the proxies from 
+# proxies
 proxies_list = [
     '216.173.76.195:6822',
     '104.224.90.189:6350',
@@ -72,7 +71,7 @@ proxies_list = [
     '45.41.169.145:6806',
     '217.69.127.107:6728',
     '45.146.31.4:5591',
-    '91.223.126.99:6711',
+    '45.138.119.179:5928',
     '216.173.107.152:6120',
     '45.41.171.10:6046',
     '185.48.52.248:5840',
@@ -130,7 +129,7 @@ def getRandomHeader():
         'Accept-Language':  random.choice(accepted_language),
     }
 
-# srape url with 1 proxy
+# admin scrape button
 def request_with_proxy_admin(url):
     # select random proxy from the list
     proxy = f"http://{os.getenv('WEBSHARE_USERNAME')}:{os.getenv('WEBSHARE_PASSWORD')}@{choice(proxies_list)}"
@@ -149,8 +148,7 @@ def request_with_proxy_admin(url):
     http_res = HtmlResponse(url=url, body=response.text, encoding='utf-8')
     return http_res
 
-
-# srape url with 1 proxy
+# qa client scrape
 async def request_with_proxy(url):
     # select random proxy from the list
     proxy = f"http://{os.getenv('WEBSHARE_USERNAME')}:{os.getenv('WEBSHARE_PASSWORD')}@{choice(proxies_list)}"
@@ -173,7 +171,7 @@ async def request_with_proxy(url):
 async def request_with_proxy_aio(session: aiohttp.ClientSession, url: str, proxy: str):
     try:
         proxy = f"http://{os.getenv('WEBSHARE_USERNAME')}:{os.getenv('WEBSHARE_PASSWORD')}@{choice(proxies_list)}"
-        async with session.get(url, proxy=proxy, timeout=10, headers=getRandomHeader()) as res:
+        async with session.get(url, proxy=proxy, timeout=50, headers=getRandomHeader()) as res:
             if res.status == 200:
                 data = await res.text
                 return data
@@ -182,17 +180,18 @@ async def request_with_proxy_aio(session: aiohttp.ClientSession, url: str, proxy
     except:
         return None
 
-# parallel srape url with 3 proxy
+# parallel srape url
 async def parallelRequest(url):
     async with aiohttp.ClientSession() as session:
         # populate task
         tasks = []
-        for _ in range(3):
+        for _ in range(4):
             task = asyncio.create_task(request_with_proxy(url))
             tasks.append(task)
         
         # execute task parallel
         responsesArr = await asyncio.gather(*tasks)
         for res in responsesArr:
-            if res is not None:
+            if res is not None and 'not a robot' not in str(res.body) and 'To discuss automated access to Amazon' not in str(res.body):
                 return res
+        return None

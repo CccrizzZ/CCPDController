@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: ./Dockerfile
     image: cccrizzz/ccpd-django-service
-    command: python manage.py runserver_plus 0.0.0.0:8000
-    # command: gunicorn --bind :8000 --workers 3 CCPDController.wsgi:application
+    # command: python manage.py runserver_plus 0.0.0.0:8000
+    command: gunicorn --bind :8000 --workers 3 CCPDController.wsgi:application
     ports:
       - 8000:8000

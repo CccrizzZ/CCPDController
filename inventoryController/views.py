@@ -6,7 +6,7 @@ import requests
 from scrapy.http import HtmlResponse
 from datetime import datetime, timedelta
 import xlrd
-from CCPDController.proxy_request import parallelRequest, request_with_proxy, request_with_proxy_admin
+from CCPDController.proxy_request import getRandomHeader, parallelRequest, request_with_proxy, request_with_proxy_admin
 from inventoryController.models import AuctionItem, AuctionRecord, InstockInventory, InventoryItem
 from CCPDController.scrape_utils import extract_urls, getCurrency, getImageUrl, getMsrp, getTitle
 from CCPDController.utils import (
@@ -28,6 +28,7 @@ from CCPDController.utils import (
     processInstock,
     azure_blob_client
 )
+from azure.core.exceptions import ResourceExistsError
 from CCPDController.permissions import IsQAPermission, IsAdminPermission, IsSuperAdminPermission
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -277,6 +278,8 @@ def createInventory(request: HttpRequest):
 async def scrapeIntoDb(request: HttpRequest):
     try:
         body = decodeJSON(request.body)
+        owner = sanitizeString(body['owner'])
+        ownerName = sanitizeString(body['ownerName'])
         url = sanitizeString(body['url'])
         sku = sanitizeNumber(int(body['sku']))
         if url == "" or url == "No Link":
@@ -290,7 +293,6 @@ async def scrapeIntoDb(request: HttpRequest):
     elif 'a.co' not in url and 'amazon' not in url and 'amzn' not in url:
         return Response('Invalid URL, Not Amazon URL', status.HTTP_200_OK)
     
-    
     # send parallel request
     # try:
     res = await parallelRequest(url)
@@ -299,7 +301,9 @@ async def scrapeIntoDb(request: HttpRequest):
     # extract link with regex
 
     # blocked by amazon
-    if 'Sorry, we just need to make sure you\'re not a robot' in str(res.body) or 'To discuss automated access to Amazon data please contact' in str(res.body):
+    if res == None:
+        return Response('Blocked by Amazon bot detection', status.HTTP_200_OK)
+    if not str(res.body) or 'Sorry, we just need to make sure you\'re not a robot' in str(res.body) or 'To discuss automated access to Amazon data please contact' in str(res.body):
         return Response('Blocked by Amazon bot detection', status.HTTP_200_OK)
     
     # get raw html and parse it with scrapy
@@ -310,6 +314,7 @@ async def scrapeIntoDb(request: HttpRequest):
         'currency':''
     }
     
+    # get components from amazon
     try:
         payload['title'] = getTitle(res)
         payload['msrp'] = getMsrp(res)
@@ -319,7 +324,7 @@ async def scrapeIntoDb(request: HttpRequest):
         return Response('Failed to Get Data', status.HTTP_200_OK)
 
     # push to db if result
-    qa_collection.update_one(
+    update = qa_collection.update_one(
         { 'sku': sku },
         {
             '$set': {
@@ -327,6 +332,43 @@ async def scrapeIntoDb(request: HttpRequest):
             }
         }
     )
+    
+    # upload image to azure
+    if not update:
+        return Response("Cannot Add Scraped Data to Record", status.HTTP_200_OK)
+
+    # get image by request
+    imgUrl = payload['imgUrl']
+    if imgUrl:
+        try:
+            res = requests.get(imgUrl, headers=getRandomHeader())
+            print(f'{sku} uploading scraped photos...')
+        except:
+            return Response('Cannot GET From Provided URL', status.HTTP_200_OK)
+    else:
+        return Response('No Scraped Image Url', status.HTTP_200_OK)
+    if res.status_code != 200:
+        return Response(f'Cannot Get From URL: {res.status_code}')
+    if len(res.content) < 1:
+        return Response(f'Empty Image', status.HTTP_200_OK)
+    
+    # get bytes
+    img_bytes = io.BytesIO(res.content)
+
+    # construct tags
+    tag = {
+        "sku": str(sku), 
+        "time": getBlobTimeString(), # format: 2024-02-06
+        "owner": owner,
+        "ownerName": ownerName
+    }
+    # construct name
+    extension = imgUrl.split('.')[-1].split('?')[0]
+    imageName = f"{sku}/__{sku}_{sku}.{extension}"
+    try:
+        res = product_image_container_client.upload_blob(imageName, img_bytes.getvalue(), tags=tag)
+    except ResourceExistsError:
+        return Response(imageName + ' Already Exist!', status.HTTP_200_OK)
     return Response(payload, status.HTTP_200_OK)
     
     
