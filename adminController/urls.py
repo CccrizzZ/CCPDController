@@ -24,4 +24,5 @@ urlpatterns = [
     path('setProblematicBySku/<str:sku>', views.setProblematicBySku, name="setProblematicBySku"),
     path('getAdminSettings', views.getAdminSettings, name="getAdminSettings"),
     path('updateAdminSettings', views.updateAdminSettings, name="updateAdminSettings"),
+    path('updateAdminPassword', views.updateAdminPassword, name="updateAdminPassword"),
 ]

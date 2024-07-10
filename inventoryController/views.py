@@ -11,7 +11,7 @@ from inventoryController.models import AuctionItem, AuctionRecord, InstockInvent
 from CCPDController.scrape_utils import extract_urls, getCurrency, getImageUrl, getMsrp, getTitle
 from CCPDController.utils import (
     convertToAmountPerDayData, decodeJSON, 
-    get_db_client, getBlobTimeString, 
+    get_db_client, getBlobTimeString, getImageContainerClient, 
     getIsoFormatInv, 
     getNDayBeforeToday, getShelfLocationRegex, getTimeRangeFil, makeCSVRowFromItem, 
     populateSetData, sanitizeBoolean, 
@@ -24,10 +24,9 @@ from CCPDController.utils import (
     sanitizeString,
     full_iso_format,
     findObjectInArray,
-    product_image_container_client,
     processInstock,
-    azure_blob_client
 )
+from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceExistsError
 from CCPDController.permissions import IsQAPermission, IsAdminPermission, IsSuperAdminPermission
 from rest_framework.decorators import api_view, permission_classes
@@ -366,7 +365,8 @@ async def scrapeIntoDb(request: HttpRequest):
     extension = imgUrl.split('.')[-1].split('?')[0]
     imageName = f"{sku}/__{sku}_{sku}.{extension}"
     try:
-        res = product_image_container_client.upload_blob(imageName, img_bytes.getvalue(), tags=tag)
+        image_container_client = getImageContainerClient
+        res = image_container_client.upload_blob(imageName, img_bytes.getvalue(), tags=tag)
     except ResourceExistsError:
         return Response(imageName + ' Already Exist!', status.HTTP_200_OK)
     return Response(payload, status.HTTP_200_OK)
@@ -436,20 +436,23 @@ def updateInventoryBySku(request: HttpRequest, sku: str):
     # try:
     # if sku changed, change blob tags
     if newSku != 0:
+        image_container_client = getImageContainerClient()
         # check if blob with that sku exist
         queryTag = f"sku = '{newSku}'" 
-        target_blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=queryTag)
+        target_blob_list = image_container_client.find_blobs_by_tags(filter_expression=queryTag)
         if sum(1 for _ in target_blob_list) > 0:
             return Response('Target Blob Exist', status.HTTP_409_CONFLICT)
         
         # update blob tags (rename)
         queryTag = f"sku = '{sku}'" 
-        blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=queryTag)
+        blob_list = image_container_client.find_blobs_by_tags(filter_expression=queryTag)
+        image_container_client.close()
         newTag = {}
         
+        blob_service_client = BlobServiceClient.from_connection_string(os.getenv('SAS_KEY'))
         # copy the blobs to new sku destination
         for item in blob_list:
-            source_blob = azure_blob_client.get_blob_client(container='product-image', blob=item.name)
+            source_blob = blob_service_client.get_blob_client(container='product-image', blob=item.name)
             tags = source_blob.get_blob_tags()
             if newTag == {}:
                 newTag = {
@@ -462,7 +465,7 @@ def updateInventoryBySku(request: HttpRequest, sku: str):
             newBlobName = f'{newSku}/{newSku}_{item.name[length:]}'
             
             # copy and delete
-            destination_blob_client = azure_blob_client.get_blob_client(container='product-image', blob=newBlobName)
+            destination_blob_client = blob_service_client.get_blob_client(container='product-image', blob=newBlobName)
             operation = destination_blob_client.start_copy_from_url(source_blob.url)
             while True:
                 props = destination_blob_client.get_blob_properties()
@@ -480,6 +483,7 @@ def updateInventoryBySku(request: HttpRequest, sku: str):
                 destination_blob_client.set_blob_tags(newTag)
             else:
                 return Response('Failed to Update Related Photos', status.HTTP_200_OK)
+        blob_service_client.close()
 
     # update inventory
     res = qa_collection.update_one(
@@ -528,16 +532,19 @@ def deleteInventoryBySku(request: HttpRequest):
         # delete record from mongo
         qa_collection.delete_one({'sku': sku, 'time': time})
         
+        image_container_client = getImageContainerClient()
         # list blob by sku
         tag_filter = f"sku = '{str(sku)}'"
-        blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=tag_filter)
+        blob_list = image_container_client.find_blobs_by_tags(filter_expression=tag_filter)
 
         # delete each blob 
         try:
             for blob in blob_list:
-                product_image_container_client.delete_blob(blob.name)
+                image_container_client.delete_blob(blob.name)
+            image_container_client.close()
         except:
             return Response('Failed to Delete', status.HTTP_500_INTERNAL_SERVER_ERROR)
+        image_container_client.close()
         return Response('Inventory Deleted', status.HTTP_200_OK)
     return Response('Cannot Delete Inventory After 24H, Please Contact Admin', status.HTTP_403_FORBIDDEN)
 
@@ -696,10 +703,13 @@ def restock(request: HttpRequest):
     
     # change the id on the blob tag 
     sku = f"sku = '{oldSku}'" 
-    blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=sku)
+    image_container_client = getImageContainerClient()
+    blob_list = image_container_client.find_blobs_by_tags(filter_expression=sku)
+    image_container_client.close()
     newTime = getBlobTimeString()
+    blob_service_client = BlobServiceClient.from_connection_string(os.getenv('SAS_KEY'))
     for item in blob_list:
-        blob_client = azure_blob_client.get_blob_client(container='product-image', blob=item.name)
+        blob_client = blob_service_client.get_blob_client(container='product-image', blob=item.name)
         tags = blob_client.get_blob_tags()
         updated_tags = {
             'sku': newSku, 
@@ -754,17 +764,20 @@ def getInstockByPage(request: HttpRequest):
     
     # see if filter is applied to determine the query
     if fil == {}:
-        query = instock_collection.find().sort('time', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
+        cursor = instock_collection.find()
+        query = cursor.sort('time', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
         count = instock_collection.count_documents({})
     else:
-        query = instock_collection.find(fil).sort('time', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
+        cursor = instock_collection.find(fil)
+        query = cursor.sort('time', pymongo.DESCENDING).skip(skip).limit(body['itemsPerPage'])
         count = instock_collection.count_documents(fil)
-
+    
     # get rid of object id
     for inventory in query:
         inventory['_id'] = str(inventory['_id'])
         arr.append(inventory)
     query.close()
+    cursor.close()
     
     # if pulled array empty return no content
     if len(arr) == 0:
@@ -1004,7 +1017,8 @@ def getAuctionCsv(request: HttpRequest):
         # build blob filter tag 
         sku = f"sku = '{item['sku']}'" 
         # get blob list by tag
-        blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=sku)
+        image_container_client = getImageContainerClient()
+        blob_list = image_container_client.find_blobs_by_tags(filter_expression=sku)
         # all images names by auction lot 
         images = []
         # get images count per item
@@ -1028,8 +1042,11 @@ def getAuctionCsv(request: HttpRequest):
             allUnsoldArr.append(row)
             # image info
             images = []
+            # azure query tag
+            sku = f"sku = '{item['sku']}'" 
+            image_container_client = getImageContainerClient()
             # list all blob name for each sku
-            blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=sku)
+            blob_list = image_container_client.find_blobs_by_tags(filter_expression=sku)
             # count image and push them into array
             count = sum(1 for _ in blob_list)
             for x in range(count):
@@ -1327,13 +1344,16 @@ def createRemainingRecord(request: HttpRequest):
     # array for all imported unsold
     targetAuctionUnsold = auctionRecord['previousUnsoldArr'] if 'previousUnsoldArr' in auctionRecord else []
     allUnsold = []
-    if len(targetAuctionUnsold) > 0:
+    if targetAuctionUnsold != []:
         for obj in targetAuctionUnsold:
             for unsold in obj['items']:
                 allUnsold.append(unsold)
 
     # append all the unsold into bottom row
     targetAuctionItemsArr = targetAuctionItemsArr + allUnsold
+    
+    if targetAuctionItemsArr == []:
+        return Response('No Items on Auction', status.HTTP_404_NOT_FOUND)
     
     # item lot start 
     itemLotStart = auctionRecord['itemLotStart'] if 'itemLotStart' in auctionRecord else 100
@@ -1430,7 +1450,7 @@ def createRemainingRecord(request: HttpRequest):
                 }
                 unsoldTopRow.append(newTopRowUnsold)
         # bottom inventory
-        else:
+        elif len(targetAuctionItemsArr) > 0:
             try:
                 # pull info from item in auction record
                 item = findObjectInArray(targetAuctionItemsArr, 'lot', lot)
@@ -1797,15 +1817,16 @@ def importUnsoldItems(request: HttpRequest):
     if not auction:
         return Response('Already Imported', status.HTTP_409_CONFLICT)
     
-    # check for unsold sets
-    if 'previousUnsoldArr' not in auction or len(auction['previousUnsoldArr']) < 1:
+    # check if unsold lots exist in this record
+    # get largest lot number to start appending unsold items
+    if ('previousUnsoldArr' not in auction or len(auction['previousUnsoldArr']) < 1):
         # find object with the largest lot value (bottom ones)
-        largest = max(auction['itemsArr'], key=lambda x: x["lot"])
+        lot_largest = max(auction['itemsArr'], key=lambda x: x["lot"]) if len(auction['itemsArr']) > 0 else {'lot': 100}
     else:
         # get the last object in unsold array
         arr = auction['previousUnsoldArr'][-1]['items']
-        largest = max(arr, key=lambda x: x['lot'])
-    unsoldLotStart = largest['lot'] + gapSize + 1
+        lot_largest = max(arr, key=lambda x: x['lot'])
+    unsoldLotStart = lot_largest['lot'] + gapSize + 1
     
     # except:
     #     return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
@@ -1900,7 +1921,6 @@ def auditRemainingRecord(request: HttpRequest):
     )
     if not remaining:
         return Response('Remaining Record Not Found', status.HTTP_404_NOT_FOUND)
-    print(remaining)
     if remaining['isProcessed'] == True:
         return Response('Remaining Record Already Processed', status.HTTP_409_CONFLICT)
     # except:

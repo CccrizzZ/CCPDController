@@ -5,17 +5,18 @@ import requests
 import pillow_heif
 from PIL import Image
 from azure.core.exceptions import ResourceExistsError
+from azure.storage.blob import BlobServiceClient
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from CCPDController.utils import (
-    decodeJSON, 
+    decodeJSON,
+    getImageContainerClient, 
     getNDayBefore, 
     sanitizeNumber, 
     sanitizeString, 
     getBlobTimeString, 
     get_db_client,
-    product_image_container_client,
 )
 from CCPDController.permissions import IsQAPermission, IsAdminPermission
 from dotenv import load_dotenv
@@ -44,14 +45,17 @@ def getUrlsByOwner(request: HttpRequest):
     # search by owner name
     owner = "\"ownerName\"='" + body['ownerName'] + "'"
     query = owner + " AND " + time
-    
+
+    image_container_client = BlobServiceClient.from_connection_string(os.getenv('SAS_KEY')).get_container_client('product-image')
+
     # collection of blobs
-    blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=query)
+    blob_list = image_container_client.find_blobs_by_tags(filter_expression=query)
     
     arr = []
     for blob in blob_list:
-        blob_client = product_image_container_client.get_blob_client(blob.name)
+        blob_client = image_container_client.get_blob_client(blob.name)
         arr.append(blob_client.url)
+    image_container_client.close()
     return Response(arr, status.HTTP_200_OK)
 
 # sku: str
@@ -65,11 +69,15 @@ def getUrlsBySku(request: HttpRequest):
     sku = f"sku = '{sanitizeNumber(int(body['sku']))}'"
     # except:
     #     return Response('Invalid SKU', status.HTTP_400_BAD_REQUEST)
-    blob_list = product_image_container_client.find_blobs_by_tags(filter_expression=sku)
+    
+    # get blob list from container client
+    container_client = getImageContainerClient()
+    blob_list = container_client.find_blobs_by_tags(filter_expression=sku)
+    container_client.close()
     
     arr = []
     for blob in blob_list:
-        blob_client = product_image_container_client.get_blob_client(blob.name)
+        blob_client = container_client.get_blob_client(blob.name)
         try:
             # when refreshing after deleting an image
             # this line throws ErrorCode:BlobNotFound
@@ -131,7 +139,9 @@ def uploadImage(request: HttpRequest, ownerId, owner, sku):
             # imageName = f'{sku}/_{base_name}.jpg'
             imageName = f'{sku}/{base_name}.jpg'
         try:
-            res = product_image_container_client.upload_blob(imageName, img, tags=inventory_tags)
+            container_client = getImageContainerClient()
+            res = container_client.upload_blob(imageName, img, tags=inventory_tags)
+            container_client.close()
             if not res: 
                 return Response('Failed to upload', status.HTTP_500_INTERNAL_SERVER_ERROR)
         except ResourceExistsError:
@@ -152,7 +162,10 @@ def deleteImageByName(request: HttpRequest):
     # azure automatically unquote all % in url
     imageName = parse.unquote(f'{str(sku)}/{name.split('?')[0]}')
     try:
-        product_image_container_client.delete_blob(imageName)
+        # delete blob from container client
+        container_client = getImageContainerClient()
+        container_client.delete_blob(imageName)
+        container_client.close()
     except:
         return Response('No Such Image', status.HTTP_404_NOT_FOUND)
     return Response('Image Deleted', status.HTTP_200_OK)
@@ -207,7 +220,8 @@ def uploadScrapedImage(request: HttpRequest):
     else:
         imageName = f"{sku}/__{sku}_{sku}.{extension}"
     try:
-        res = product_image_container_client.upload_blob(imageName, img_bytes.getvalue(), tags=inventory_tags)
+        container_client = getImageContainerClient()
+        res = container_client.upload_blob(imageName, img_bytes.getvalue(), tags=inventory_tags)
     except ResourceExistsError:
         return Response(imageName + ' Already Exist!', status.HTTP_409_CONFLICT)
     return Response('found', status.HTTP_200_OK)
@@ -227,10 +241,12 @@ def rotateImage(request: HttpRequest):
     
     # pull image fron azure blob container
     imageName = parse.unquote(f'{str(sku)}/{name}')
-    blob_client = product_image_container_client.get_blob_client(imageName)
+    container_client = getImageContainerClient()
+    blob_client = container_client.get_blob_client(imageName)
     tags = blob_client.get_blob_tags()
     blob_data = blob_client.download_blob()
     image_stream = io.BytesIO(blob_data.readall())
+    container_client.close()
     
     rotation = 0
     if (rotationIndex == 1):

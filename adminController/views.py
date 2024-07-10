@@ -1,3 +1,4 @@
+from curses import newpad
 import email
 from urllib import response
 from django.http import HttpRequest
@@ -176,17 +177,16 @@ def deleteUserById(request: HttpRequest):
         # convert to BSON
         body = decodeJSON(request.body)
         uid = ObjectId(body['id'])
-        fbId = sanitizeString(body['fbID'])
+        fid = sanitizeString(body['fid'])
     except:
         return Response('Invalid User ID', status.HTTP_400_BAD_REQUEST)
     
-    # query db for user
-    res = user_collection.find_one({'_id': uid})
+    # try delete user from db
+    res = user_collection.delete_one({'_id': uid})
     
-    # if found, call firebase & mongodb delete user function
+    # if found, call firebase
     if res:
-        # auth.delete_user('')
-        user_collection.delete_one({'_id': uid})
+        auth.delete_user(uid=fid)
         return Response('User Deleted', status.HTTP_200_OK)
     return Response('User Not Found', status.HTTP_404_NOT_FOUND)
 
@@ -559,3 +559,33 @@ def updateAdminSettings(request: HttpRequest):
     if not res:
         return Response('Cannot Update Admin Settings', status.HTTP_500_INTERNAL_SERVER_ERROR)    
     return Response('Updated Admin Settings', status.HTTP_200_OK)
+
+# update admin password from settings panel
+@api_view(['POST'])
+@permission_classes([IsAdminPermission])
+def updateAdminPassword(request: HttpRequest):
+    try:
+        body = decodeJSON(request)
+        fid = sanitizeString(body['fid'])
+        print(fid)
+        # uid = sanitizeString(body['uid'])
+        newPass = sanitizeString(body['newPass'])
+        print(newPass)
+        
+    except:
+        return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
+
+    # update password in mongo db
+    # res = user_collection.update_one(
+    #     {'_id': uid},
+    #     {'password': newPass}
+    # )
+    # if not res:
+    #     return Response('Cannot Update User Info in MongoDB', status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # update password in firebase
+    try:
+        auth.update_user(uid=fid, password=newPass)
+    except:
+        return Response('Cannot Update User Info in Firebase', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return Response('Password Updated! Please Login!', status.HTTP_200_OK)

@@ -23,7 +23,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 cred = credentials.Certificate(json.loads(str(service_account_key, encoding='utf-8')))
 app = firebase_admin.initialize_app(cred)
 
-
 # construct mongoDB client
 # ssl hand shake error because ip not whitelisted
 client = MongoClient(
@@ -39,10 +38,15 @@ qa_inventory_db_name = 'QAInventory'
 # Azure stuff
 account_name = 'CCPD'
 container_name = 'product-image'
-# blob client object from azure access keys
-azure_blob_client = BlobServiceClient.from_connection_string(os.getenv('SAS_KEY'))
-# container handle for product image
-product_image_container_client = azure_blob_client.get_container_client(container_name)
+
+def getImageContainerClient():
+    image_container_client = BlobServiceClient.from_connection_string(os.getenv('SAS_KEY')).get_container_client('product-image')
+    return image_container_client
+
+# # blob client object from azure access keys
+# azure_blob_client = BlobServiceClient.from_connection_string(os.getenv('SAS_KEY'))
+# # container handle for product image
+# product_image_container_client = azure_blob_client.get_container_client(container_name)
 
 # decode body from json to object
 decodeJSON = lambda body : json.loads(body.decode('utf-8'))
