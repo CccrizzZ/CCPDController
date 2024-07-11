@@ -29,8 +29,8 @@ client = MongoClient(
     os.getenv('DATABASE_URL'), 
     maxPoolSize=2
 )
-db_handle = client[os.getenv('DB_NAME')]
 def get_db_client():
+    db_handle = client[os.getenv('DB_NAME')]
     return db_handle
 
 qa_inventory_db_name = 'QAInventory'
@@ -283,6 +283,7 @@ def populateSetData(body, key, setData, sanitizationMethod):
     if key in body:
         setData[key] = sanitizationMethod(body[key])
 
+# for daily QA count chart
 def convertToAmountPerDayData(arr):
     # try:
     formatted_dates = [datetime.strptime(item['time'], inv_iso_format).strftime('%b %d') for item in arr]
@@ -304,6 +305,7 @@ def getTimeRangeFil(deltaDays=0):
         '$lt': time.replace(hour=23, minute=59, second=59, microsecond=999999).strftime(full_iso_format)
     }
 
+# find object with key and value in array
 def findObjectInArray(array_of_objects, key, value):
     return [obj for obj in array_of_objects if obj.get(key) == value][0]
 
@@ -341,7 +343,7 @@ def getBidReserve(description, msrp, condition):
         startbid = low_value_start_bid
     return {'startBid': startbid, 'reserve': reserve}
 
-
+# process 
 def processInstock(itemArr, instockRes, duplicate, existingAuctionItems=None):
     # loop all filtered instock items
     for item in instockRes:
@@ -389,9 +391,10 @@ def processInstock(itemArr, instockRes, duplicate, existingAuctionItems=None):
             itemArr.append(auctionItem)
     return itemArr
 
-
-vendor_name = 'B0000'
+# take item object and return csv row obj
 def makeCSVRowFromItem(item):
+    vendor_name = 'B0000'
+    
     # get float msrp
     if 'msrp' in item:
         msrp = float(sanitizeNumber(item['msrp']))
@@ -448,5 +451,7 @@ def makeCSVRowFromItem(item):
     }
     return row
 
+# regex for shelf location input by QA personal
+# limits the input to shelf location character followed by a number
 def getShelfLocationRegex(list):
     return f"^({'|'.join(re.escape(item) for item in list)})[0-9].*"

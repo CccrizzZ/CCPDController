@@ -44,13 +44,6 @@ import random
 from django.views.decorators.csrf import csrf_exempt
 from adrf.decorators import api_view as adrf_view
 
-# append this in front of description for item msrp lte 80$
-desc_under_80 = 'READ NEW TERMS OF USE BEFORE YOU BID!'
-default_start_bid = 5
-default_start_bid_mystery_box = 5
-aliexpress_mystery_box_closing = 25
-reserve_default = 0
-
 # pymongo
 db = get_db_client()
 qa_collection = db[qa_inventory_db_name]
@@ -294,7 +287,7 @@ async def scrapeIntoDb(request: HttpRequest):
     
     # send parallel request
     # try:
-    res = await parallelRequest(url)
+    res = await parallelRequest(extract_urls(url))
     # except:
         # return Response('Cannot Scrape', status.HTTP_200_OK)
     # extract link with regex
@@ -365,7 +358,7 @@ async def scrapeIntoDb(request: HttpRequest):
     extension = imgUrl.split('.')[-1].split('?')[0]
     imageName = f"{sku}/__{sku}_{sku}.{extension}"
     try:
-        image_container_client = getImageContainerClient
+        image_container_client = getImageContainerClient()
         res = image_container_client.upload_blob(imageName, img_bytes.getvalue(), tags=tag)
     except ResourceExistsError:
         return Response(imageName + ' Already Exist!', status.HTTP_200_OK)
@@ -1011,27 +1004,32 @@ def getAuctionCsv(request: HttpRequest):
     itemsArrData = []
     imageArrData = []
     itemsArr = record['itemsArr']
+    image_container_client = getImageContainerClient()
     for item in itemsArr:
         row = makeCSVRowFromItem(item)
         itemsArrData.append(row)
         # build blob filter tag 
         sku = f"sku = '{item['sku']}'" 
         # get blob list by tag
-        image_container_client = getImageContainerClient()
         blob_list = image_container_client.find_blobs_by_tags(filter_expression=sku)
         # all images names by auction lot 
         images = []
         # get images count per item
         imageCount = sum(1 for _ in blob_list)
+        # imageCount = 0
+        # for _ in blob_list:
+        #     imageCount += 1
         # item lot number in auction
         itemLot = sanitizeNumber(item['lot'])
         for x in range(imageCount):
             name = f"{itemLot}_{x + 1}.jpg"  # image name starts with lot_1.jpg
             images.append(name)
         imageArrData.append(images)
+    image_container_client.close()
     
     # make array for previously unsold
     allUnsoldArr = []
+    image_container_client2 = getImageContainerClient()
     for obj in record['previousUnsoldArr']:
         itemsArr = obj['items']
         for item in itemsArr:
@@ -1044,16 +1042,19 @@ def getAuctionCsv(request: HttpRequest):
             images = []
             # azure query tag
             sku = f"sku = '{item['sku']}'" 
-            image_container_client = getImageContainerClient()
             # list all blob name for each sku
-            blob_list = image_container_client.find_blobs_by_tags(filter_expression=sku)
+            blob_list = image_container_client2.find_blobs_by_tags(filter_expression=sku)
             # count image and push them into array
-            count = sum(1 for _ in blob_list)
-            for x in range(count):
+            imageCount = sum(1 for _ in blob_list)
+            # imageCount = 0
+            # for _ in blob_list:
+            #     imageCount += 1
+            for x in range(imageCount):
                 name = f"{itemLot}_{x + 1}.jpg"
                 images.append(name)
             imageArrData.append(images)
-    
+    image_container_client2.close()
+
     # column head
     columns = [
         'Lot',

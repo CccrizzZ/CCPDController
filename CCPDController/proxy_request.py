@@ -113,12 +113,12 @@ proxies_list = [
 ]
 
 accepted_language = [
-    'en-US,en;q=1'
+    'en-US,en;q=1',
     'en-US,en;q=0.9',
-    'en-US,en;q=0.8'
+    'en-US,en;q=0.8',
     'en-US,en;q=0.7',
-    '*;q=0.7'
-    '*;q=0.8'
+    '*;q=0.7',
+    '*;q=0.8',
 ]
 
 # generate header with random user agent

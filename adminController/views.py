@@ -173,21 +173,24 @@ def createUser(request: HttpRequest):
 @api_view(['DELETE'])
 @permission_classes([IsSuperAdminPermission])
 def deleteUserById(request: HttpRequest):
-    try:
-        # convert to BSON
-        body = decodeJSON(request.body)
-        uid = ObjectId(body['id'])
-        fid = sanitizeString(body['fid'])
-    except:
-        return Response('Invalid User ID', status.HTTP_400_BAD_REQUEST)
+    # try:
+    # convert to BSON
+    body = decodeJSON(request.body)
+    uid = ObjectId(sanitizeString(body['id']))
+    fid = sanitizeString(body['fid'])
+    # except:
+    #     return Response('Invalid User ID', status.HTTP_400_BAD_REQUEST)
     
     # try delete user from db
     res = user_collection.delete_one({'_id': uid})
     
-    # if found, call firebase
+    # if deleted from mongo DB, call firebase
     if res:
-        auth.delete_user(uid=fid)
-        return Response('User Deleted', status.HTTP_200_OK)
+        deleted = auth.delete_user(uid=fid)
+        if deleted:
+            return Response('User Deleted', status.HTTP_200_OK)
+        else:
+            return Response('Failed to Delete From Firebase', status.HTTP_500_INTERNAL_SERVER_ERROR)
     return Response('User Not Found', status.HTTP_404_NOT_FOUND)
 
 # update user information by id
@@ -565,23 +568,25 @@ def updateAdminSettings(request: HttpRequest):
 @permission_classes([IsAdminPermission])
 def updateAdminPassword(request: HttpRequest):
     try:
-        body = decodeJSON(request)
+        body = decodeJSON(request.body)
         fid = sanitizeString(body['fid'])
-        print(fid)
-        # uid = sanitizeString(body['uid'])
+        uid = sanitizeString(body['uid'])
         newPass = sanitizeString(body['newPass'])
-        print(newPass)
-        
     except:
         return Response('Invalid Body', status.HTTP_400_BAD_REQUEST)
-
-    # update password in mongo db
-    # res = user_collection.update_one(
-    #     {'_id': uid},
-    #     {'password': newPass}
-    # )
-    # if not res:
-    #     return Response('Cannot Update User Info in MongoDB', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    try:
+        # update password in mongo db
+        user_collection.update_one(
+            {'_id': ObjectId(uid)},
+            {
+                '$set': {
+                    'password': newPass
+                }
+            }
+        )
+    except:
+        return Response('Cannot Update User Info in MongoDB', status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     # update password in firebase
     try:
