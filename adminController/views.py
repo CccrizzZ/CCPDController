@@ -338,6 +338,7 @@ def getQARecordsByPage(request: HttpRequest):
         # strip the ilter into mongoDB query object in fil
         fil = {}
         unpackQARecordFilter(query_filter, fil)
+        print(fil)
     except:
         return Response('Invalid Body: ', status.HTTP_400_BAD_REQUEST)
     

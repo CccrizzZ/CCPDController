@@ -3,6 +3,7 @@ import os
 import json
 import re
 import firebase_admin._auth_client
+import pandas as pd
 import pytz
 from pymongo import MongoClient
 from collections import Counter
@@ -237,7 +238,7 @@ def sanitizeArrayOfString(arr):
 def sanitizeString(field):
     if not isinstance(field, str):
         raise TypeError('Invalid String')
-    if len(field) > 600:
+    if len(field) > 3000:
         raise TypeError('Input Too Long')
     return field.replace('$', '')
 
@@ -343,7 +344,7 @@ def getBidReserve(description, msrp, condition):
         startbid = low_value_start_bid
     return {'startBid': startbid, 'reserve': reserve}
 
-# process 
+# process all instock item and return a array as auction record "itemArr"
 def processInstock(itemArr, instockRes, duplicate, existingAuctionItems=None):
     # loop all filtered instock items
     for item in instockRes:

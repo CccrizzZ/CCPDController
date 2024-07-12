@@ -73,7 +73,7 @@ class InstockInventory(models.Model):
     comment = models.TextField(max_length=100)
     lead = models.TextField(max_length=100)
     description = models.TextField(max_length=260)
-    url = models.TextField(max_length=300)
+    url = models.TextField(max_length=3000)
     marketplace = models.CharField(max_length=10, choices=MARKETPLACE_CHOISES)
     platform = models.CharField(max_length=17, choices=PLATFORM_CHOISES)
     adminName = models.CharField(max_length=40)

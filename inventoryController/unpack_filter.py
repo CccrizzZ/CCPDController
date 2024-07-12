@@ -16,6 +16,7 @@ def unpackTimeRange(query_filter, fil):
             elif 'to' in timeRange and 'from' in timeRange:
                 t = datetime.strptime(sanitizeString(timeRange['to']), full_iso_format).replace(hour=23, minute=59, second=59).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
+            # populate time filter in fil object
             fil['time'] = {
                 '$gte': f,
                 '$lt': t
